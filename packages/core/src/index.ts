@@ -1,18 +1,19 @@
 import type { TargetAdapter } from '@deepsync/contracts'
+import { AdapterRegistry } from './adapters/index.ts'
 
 export interface DeepSyncCoreOptions {
   readonly adapters?: readonly TargetAdapter[]
 }
 
 export class DeepSyncCore {
-  readonly #adapters: ReadonlyMap<string, TargetAdapter>
+  readonly #adapters: AdapterRegistry
 
   constructor(options: DeepSyncCoreOptions = {}) {
-    this.#adapters = new Map((options.adapters ?? []).map(adapter => [adapter.id, adapter]))
+    this.#adapters = new AdapterRegistry(options.adapters)
   }
 
   listAdapters(): readonly string[] {
-    return [...this.#adapters.keys()].sort()
+    return this.#adapters.list()
   }
 
   adapter(id: string): TargetAdapter | undefined {
@@ -20,4 +21,16 @@ export class DeepSyncCore {
   }
 }
 
+export * from './adapters/index.ts'
+export * from './capabilities/index.ts'
+export * from './compatibility/index.ts'
+export * from './dependencies/index.ts'
+export * from './errors/index.ts'
+export * from './health/index.ts'
+export * from './lockfile/index.ts'
+export * from './plugins/index.ts'
+export * from './resolver/index.ts'
+export * from './state/index.ts'
+export * from './targets/index.ts'
+export * from './transactions/index.ts'
 export type * from '@deepsync/contracts'
