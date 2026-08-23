@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "@deepsync/contracts": ["packages/contracts/src/index.ts"],
+      "@deepsync/core": ["packages/core/src/index.ts"],
+      "@deepsync/doctor": ["packages/doctor/src/index.ts"],
+      "@deepsync/source-github": ["packages/source-github/src/index.ts"],
+      "@deepsync/target-dsh": ["packages/target-dsh/src/index.ts"]
+    }
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "fixtures/**/*.ts", "vitest.config.ts"]
+}
