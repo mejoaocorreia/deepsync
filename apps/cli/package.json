@@ -1,0 +1,20 @@
+{
+  "name": "deepsync",
+  "version": "0.1.0-alpha.1",
+  "description": "DeepSync command-line interface",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "bin": { "deepsync": "./dist/bin.mjs" },
+  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "tsdown src/index.ts src/bin.ts --format esm --dts --clean" },
+  "dependencies": {
+    "@deepsync/contracts": "workspace:^",
+    "@deepsync/core": "workspace:^",
+    "@deepsync/doctor": "workspace:^",
+    "@deepsync/source-github": "workspace:^",
+    "@deepsync/target-dsh": "workspace:^"
+  },
+  "publishConfig": { "access": "public" }
+}

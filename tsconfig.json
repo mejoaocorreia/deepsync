@@ -12,8 +12,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "types": ["node", "vitest/globals"],
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@deepsync/contracts": ["packages/contracts/src/index.ts"],
       "@deepsync/core": ["packages/core/src/index.ts"],

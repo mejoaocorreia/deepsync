@@ -1,0 +1,10 @@
+{
+  "name": "@deepsync/fixture-dsh-lifecycle-probe",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "files": ["index.js", "cordis.patch.yml", "deepsync.manifest.json"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}

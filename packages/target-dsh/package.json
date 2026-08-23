@@ -1,0 +1,13 @@
+{
+  "name": "@deepsync/target-dsh",
+  "version": "0.1.0-alpha.1",
+  "description": "DeepSeek Harness target adapter for DeepSync",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "tsdown src/index.ts --format esm --dts --clean" },
+  "dependencies": { "@deepsync/contracts": "workspace:^", "@deepsync/core": "workspace:^" },
+  "publishConfig": { "access": "public" }
+}
