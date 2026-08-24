@@ -48,6 +48,7 @@ export interface TransactionRecord {
   readonly planDigest: PlanDigest
   readonly plan: JsonValue
   readonly previousTargetHead?: RequestId
+  readonly rollbackKind?: 'failure' | 'operator'
   readonly executionId?: ExecutionId
   readonly snapshot?: TargetSnapshot
   readonly observation?: TargetObservation
@@ -96,22 +97,55 @@ function objectMap(value: unknown, subject: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function jsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (Array.isArray(value)) return value.every(jsonValue)
+  if (typeof value !== 'object') return false
+  return Object.values(value as Record<string, unknown>).every(jsonValue)
+}
+
+function snapshot(value: unknown, subject: string): TargetSnapshot {
+  const candidate = objectMap(value, subject)
+  if (!('ref' in candidate) || !jsonValue(candidate.ref)) throw new DeepSyncError('STATE_CORRUPT', `${subject} is malformed`)
+  return candidate as unknown as TargetSnapshot
+}
+
 function normalizeTransaction(key: string, value: unknown): TransactionRecord {
   const record = objectMap(value, `Transaction ${key}`)
+  const allowed = new Set(['requestId', 'requestFingerprint', 'phase', 'adapterId', 'targetInstanceId', 'artifactDigest', 'planDigest', 'plan', 'previousTargetHead', 'rollbackKind', 'executionId', 'snapshot', 'validationEvidence', 'observation', 'healthEvidence', 'failure', 'restored', 'rollbackEvidence'])
+  if (Object.keys(record).some(field => !allowed.has(field))) throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has unknown fields`)
   const plan = objectMap(record.plan, `Transaction ${key} plan`)
   const artifactDigest = record.artifactDigest ?? plan.artifactDigest
   if (record.requestId !== key || typeof record.requestFingerprint !== 'string' || typeof record.phase !== 'string'
     || !PHASES.has(record.phase as TransactionPhase) || typeof record.adapterId !== 'string'
     || typeof record.targetInstanceId !== 'string' || typeof artifactDigest !== 'string'
-    || typeof record.planDigest !== 'string') {
+    || typeof record.planDigest !== 'string' || plan.schemaVersion !== 1 || plan.adapterId !== record.adapterId
+    || plan.targetInstanceId !== record.targetInstanceId || plan.artifactDigest !== artifactDigest
+    || !Array.isArray(plan.operations) || !jsonValue(plan.operations) || !jsonValue(plan.metadata)) {
     throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} is malformed`)
   }
+  if (record.previousTargetHead !== undefined && typeof record.previousTargetHead !== 'string') throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has an invalid previous target head`)
+  if (record.rollbackKind !== undefined && record.rollbackKind !== 'failure' && record.rollbackKind !== 'operator') throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has an invalid rollback kind`)
+  if (record.executionId !== undefined && typeof record.executionId !== 'string') throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has an invalid execution id`)
+  if (record.snapshot !== undefined) snapshot(record.snapshot, `Transaction ${key} snapshot`)
+  for (const field of ['validationEvidence', 'observation', 'healthEvidence', 'rollbackEvidence'] as const) {
+    if (record[field] !== undefined && !jsonValue(record[field])) throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has invalid ${field}`)
+  }
+  if (record.failure !== undefined) {
+    const failure = objectMap(record.failure, `Transaction ${key} failure`)
+    if (typeof failure.code !== 'string' || typeof failure.message !== 'string' || typeof failure.phase !== 'string'
+      || (failure.rollbackError !== undefined && typeof failure.rollbackError !== 'string')) throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} failure is malformed`)
+  }
+  if (record.restored !== undefined && typeof record.restored !== 'boolean') throw new DeepSyncError('STATE_CORRUPT', `Transaction ${key} has invalid restoration state`)
   return { ...record, artifactDigest } as unknown as TransactionRecord
 }
 
 function validateState(value: unknown): StoredState {
   const candidate = objectMap(value, 'DeepSync state')
-  if (candidate.schemaVersion !== 1 || !Number.isSafeInteger(candidate.revision)) {
+  const allowed = new Set(['schemaVersion', 'revision', 'transactions', 'quarantined', 'lastKnownGood', 'targetHeads'])
+  if (Object.keys(candidate).some(field => !allowed.has(field))) throw new DeepSyncError('STATE_CORRUPT', 'DeepSync state has unknown fields')
+  if (candidate.schemaVersion !== 1 || !Number.isSafeInteger(candidate.revision) || (candidate.revision as number) < 0) {
     throw new DeepSyncError('STATE_CORRUPT', 'DeepSync state has an unsupported or malformed version')
   }
   const transactionValues = objectMap(candidate.transactions, 'DeepSync transactions')
@@ -130,11 +164,14 @@ function validateState(value: unknown): StoredState {
     const normalized = { ...record, artifactDigest, targetInstanceId } as unknown as QuarantineRecord
     quarantined[quarantineKey(targetInstanceId, artifactDigest as ArtifactDigest)] = normalized
   }
-  const lastKnownGood = objectMap(candidate.lastKnownGood, 'DeepSync last-known-good') as Readonly<Record<string, TargetSnapshot>>
+  const lkgValues = objectMap(candidate.lastKnownGood, 'DeepSync last-known-good')
+  const lastKnownGood = Object.fromEntries(Object.entries(lkgValues).map(([target, value]) => [target, snapshot(value, `Last-known-good ${target}`)]))
   const targetHeads = candidate.targetHeads === undefined
     ? {}
     : objectMap(candidate.targetHeads, 'DeepSync target heads') as Readonly<Record<string, RequestId>>
-  if (Object.values(targetHeads).some(head => typeof head !== 'string')) throw new DeepSyncError('STATE_CORRUPT', 'DeepSync target heads are malformed')
+  for (const [target, head] of Object.entries(targetHeads)) {
+    if (typeof head !== 'string' || transactions[head]?.targetInstanceId !== target) throw new DeepSyncError('STATE_CORRUPT', `DeepSync target head ${target} is malformed`)
+  }
   return { schemaVersion: 1, revision: candidate.revision as number, transactions, quarantined, lastKnownGood, targetHeads }
 }
 

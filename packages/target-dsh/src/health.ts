@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import type { Evidence, TargetHealth } from '@deepsync/contracts'
 import { isolatedEnvironment, type IsolatedDshInstance } from './isolated.ts'
 import { terminateProcessTree } from './process.ts'
@@ -24,9 +24,11 @@ async function waitForProbe(filename: string, childClosed: Promise<number | null
   throw new Error(`DSH fixture activation timed out after ${timeoutMs}ms`)
 }
 
-export async function activateAndCheck(instance: IsolatedDshInstance, mode: ProbeMode, timeoutMs = 15_000): Promise<TargetHealth> {
+export async function activateAndCheck(instance: IsolatedDshInstance, mode: ProbeMode, healthPath: string, timeoutMs = 15_000): Promise<TargetHealth> {
   const observedAt = new Date().toISOString()
-  const filename = join(instance.home, 'deepsync-probe-health.json')
+  const filename = resolve(instance.home, healthPath)
+  const confined = relative(instance.home, filename)
+  if (confined.startsWith('..') || isAbsolute(confined)) return { ok: false, reason: 'Declared health evidence path escapes the isolated home', evidence: [] }
   await rm(filename, { force: true })
   const child = spawn(instance.command.command, [...instance.command.prefixArgs, '--profile', instance.profile], {
     cwd: instance.command.cwd,

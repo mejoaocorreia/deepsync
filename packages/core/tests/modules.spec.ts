@@ -105,6 +105,15 @@ describe('file state', () => {
     try {
       await writeFile(filename, JSON.stringify({ schemaVersion: 1, revision: 0, transactions: [], quarantined: {}, lastKnownGood: {} }))
       await expect(new JsonFileStateStore(filename).load()).rejects.toMatchObject({ code: 'STATE_CORRUPT' })
+      await writeFile(filename, JSON.stringify({
+        schemaVersion: 1,
+        revision: 1,
+        transactions: { broken: { requestId: 'broken', requestFingerprint: 'fingerprint', phase: 'planned', adapterId: 'fake', targetInstanceId: 'target', artifactDigest: 'sha256:artifact', planDigest: 'sha256:plan', plan: { schemaVersion: 1, adapterId: 'fake', targetInstanceId: 'different-target', artifactDigest: 'sha256:artifact', operations: [], metadata: {} } } },
+        quarantined: {},
+        lastKnownGood: {},
+        targetHeads: {},
+      }))
+      await expect(new JsonFileStateStore(filename).load()).rejects.toMatchObject({ code: 'STATE_CORRUPT' })
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

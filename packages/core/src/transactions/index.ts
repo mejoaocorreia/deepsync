@@ -173,7 +173,7 @@ export class LifecycleManager {
       if (record.phase !== 'committed') throw new DeepSyncError('TRANSACTION_IN_PROGRESS', `Transaction ${requestId} is not committed`)
       if (state.targetHeads[record.targetInstanceId] !== record.requestId) throw new DeepSyncError('TARGET_HEAD_MISMATCH', `Transaction ${requestId} is not the current head for target ${record.targetInstanceId}`)
       if (record.snapshot === undefined || record.executionId === undefined) throw new DeepSyncError('STATE_CORRUPT', `Transaction ${requestId} has no rollback snapshot`)
-      return await this.#rollback(state, record, this.#adapter(record.adapterId), new Error('Operator requested rollback'))
+      return await this.#rollback(state, record, this.#adapter(record.adapterId), new Error('Operator requested rollback'), true)
     })
   }
 
@@ -277,9 +277,9 @@ export class LifecycleManager {
     return await this.#put(state, { ...record, ...patch, phase })
   }
 
-  async #rollback(state: StoredState, record: TransactionRecord, adapter: TargetAdapter, cause: unknown): Promise<ExecutionResult> {
+  async #rollback(state: StoredState, record: TransactionRecord, adapter: TargetAdapter, cause: unknown, operatorRequested = record.rollbackKind === 'operator'): Promise<ExecutionResult> {
     const failure = this.#failure(cause, record.phase)
-    ;({ state, record } = await this.#transition(state, record, 'rolling-back', { failure }))
+    ;({ state, record } = await this.#transition(state, record, 'rolling-back', { failure, rollbackKind: operatorRequested ? 'operator' : 'failure' }))
     let rollbackError: string | undefined
     if (record.snapshot !== undefined && record.executionId !== undefined) {
       try {
@@ -316,7 +316,7 @@ export class LifecycleManager {
       revision: state.revision + 1,
       transactions: { ...state.transactions, [record.requestId]: finalRecord },
       quarantined: { ...state.quarantined, [key]: { artifactDigest: record.artifactDigest, targetInstanceId: record.targetInstanceId, planDigest: record.planDigest, requestId: record.requestId, reason: finalFailure.message, restored } },
-      lastKnownGood: restored && record.snapshot !== undefined ? { ...state.lastKnownGood, [record.targetInstanceId]: record.snapshot } : state.lastKnownGood,
+      lastKnownGood: restored && record.snapshot !== undefined && record.rollbackKind === 'operator' ? { ...state.lastKnownGood, [record.targetInstanceId]: record.snapshot } : state.lastKnownGood,
       targetHeads,
     }
     await this.#state.save(state.revision, next)

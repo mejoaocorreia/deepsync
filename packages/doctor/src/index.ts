@@ -23,18 +23,19 @@ export async function runDoctor(checks: readonly DoctorCheck[]): Promise<DoctorR
   return { healthy: evidence.every(item => item.status !== 'fail'), evidence }
 }
 
-export function nodeVersionCheck(minimumMajor = 22): DoctorCheck {
+export function nodeVersionCheck(version = process.versions.node): DoctorCheck {
   return {
     id: 'runtime.node',
-    description: 'Node.js satisfies the supported runtime range',
+    description: 'Node.js satisfies ^22.19.0 or >=24.0.0',
     async run() {
-      const major = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10)
+      const [major = 0, minor = 0] = version.split('.').map(part => Number.parseInt(part, 10))
+      const supported = (major === 22 && minor >= 19) || major >= 24
       return {
         checkId: 'runtime.node',
-        status: major >= minimumMajor ? 'pass' : 'fail',
-        summary: `Node.js ${process.versions.node}`,
+        status: supported ? 'pass' : 'fail',
+        summary: `Node.js ${version}`,
         observedAt: new Date().toISOString(),
-        data: { minimumMajor, observedMajor: major },
+        data: { expected: '^22.19.0 || >=24.0.0', observed: version },
       }
     },
   }

@@ -147,7 +147,9 @@ describe('LifecycleManager', () => {
     expect(adapter.value).toBe('two')
     expect(await manager.rollback('head-two')).toMatchObject({ status: 'quarantined', restored: true })
     expect(adapter.value).toBe('one')
-    expect((await manager.state()).targetHeads[TARGET]).toBe('head-one')
+    const state = await manager.state()
+    expect(state.targetHeads[TARGET]).toBe('head-one')
+    expect(state.lastKnownGood[TARGET]).toEqual({ ref: { value: 'one' } })
   })
 
   it('rejects before mutation when validation fails', async () => {
@@ -176,6 +178,7 @@ describe('LifecycleManager', () => {
     adapter.unhealthy = true
     const manager = new LifecycleManager({ adapters: [adapter] })
     expect(await manager.execute(request('unhealthy', 'one'))).toMatchObject({ status: 'quarantined', restored: true })
+    expect((await manager.state()).lastKnownGood[TARGET]).toBeUndefined()
     await expect(manager.execute(request('changed-plan', 'two'))).rejects.toMatchObject({ code: 'PLAN_QUARANTINED' })
   })
 

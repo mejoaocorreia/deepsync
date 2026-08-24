@@ -32,6 +32,7 @@ interface DshPlanMetadata {
   readonly packageName: string
   readonly version: string
   readonly mode: ProbeMode
+  readonly healthPath: string
   readonly instanceNonce: string
 }
 
@@ -52,7 +53,8 @@ function intent(value: JsonValue): DshIntent {
 function metadata(plan: ChangePlan): DshPlanMetadata {
   const candidate = object(plan.metadata, 'DSH plan metadata')
   if (typeof candidate.artifactPath !== 'string' || typeof candidate.packageName !== 'string' || typeof candidate.version !== 'string'
-    || typeof candidate.instanceNonce !== 'string' || !['healthy', 'activation-failure', 'health-failure'].includes(typeof candidate.mode === 'string' ? candidate.mode : '')) {
+    || typeof candidate.healthPath !== 'string' || typeof candidate.instanceNonce !== 'string'
+    || !['healthy', 'activation-failure', 'health-failure'].includes(typeof candidate.mode === 'string' ? candidate.mode : '')) {
     throw new DeepSyncError('PLAN_INVALID', 'DSH plan metadata is invalid')
   }
   return candidate as unknown as DshPlanMetadata
@@ -84,7 +86,7 @@ export class DshTargetAdapter implements TargetAdapter {
       targetInstanceId: request.targetInstanceId,
       artifactDigest: artifact.artifactDigest,
       operations: [{ action: 'pnpm-add', packageName: artifact.packageName, artifactPath: artifact.artifactPath, saveExact: true }],
-      metadata: { artifactPath: artifact.artifactPath, packageName: artifact.packageName, version: artifact.version, mode: requested.mode, instanceNonce: this.instance.instanceNonce },
+      metadata: { artifactPath: artifact.artifactPath, packageName: artifact.packageName, version: artifact.version, mode: requested.mode, healthPath: artifact.healthPath, instanceNonce: this.instance.instanceNonce },
     }
   }
 
@@ -97,7 +99,7 @@ export class DshTargetAdapter implements TargetAdapter {
     const detected = await detectDsh(this.instance)
     if (detected.evidence.some(item => item.status === 'fail')) throw new DeepSyncError('TARGET_UNSUPPORTED', 'DSH compatibility checks failed')
     const artifact = await inspectPackedDshArtifact(details.artifactPath)
-    if (artifact.packageName !== details.packageName || artifact.version !== details.version || artifact.artifactDigest !== plan.artifactDigest) {
+    if (artifact.packageName !== details.packageName || artifact.version !== details.version || artifact.healthPath !== details.healthPath || artifact.artifactDigest !== plan.artifactDigest) {
       throw new DeepSyncError('ARTIFACT_INVALID', 'Artifact identity changed after planning')
     }
     const compatibility = evaluateCapabilities(artifact.deepSync.capabilities, detected.target.capabilities, observedAt)
@@ -155,7 +157,8 @@ export class DshTargetAdapter implements TargetAdapter {
   async health(plan: ChangePlan, observation: TargetObservation): Promise<TargetHealth> {
     const value = object(observation.value, 'DSH observation')
     if (value.installed !== true || value.desiredActivation !== true || value.pinnedArtifact !== true) return { ok: false, reason: 'DSH package is not installed, selected, and pinned to the planned artifact', evidence: [] }
-    return await activateAndCheck(this.instance, metadata(plan).mode)
+    const details = metadata(plan)
+    return await activateAndCheck(this.instance, details.mode, details.healthPath)
   }
 
   async rollback(snapshot: TargetSnapshot, _executionId: ExecutionId): Promise<void> {

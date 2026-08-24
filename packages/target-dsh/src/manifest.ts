@@ -8,6 +8,7 @@ export interface DshBundleManifest {
   readonly packageName: string
   readonly version: string
   readonly patchPath: string
+  readonly healthPath: string
   readonly deepSync: PluginManifest
 }
 
@@ -54,6 +55,9 @@ export async function readDshBundleManifest(packageRoot: string): Promise<DshBun
   if (deepSync.packageName !== packageJson.name || deepSync.version !== packageJson.version) throw new DeepSyncError('ARTIFACT_INVALID', 'DeepSync manifest identity does not match package.json')
   const dshTarget = object(deepSync.targets.dsh, 'deepsync.manifest.json targets.dsh')
   if (dshTarget.version !== SUPPORTED_DSH_VERSION) throw new DeepSyncError('TARGET_UNSUPPORTED', `Artifact must explicitly target DSH ${SUPPORTED_DSH_VERSION}`)
+  const health = object(dshTarget.health, 'deepsync.manifest.json targets.dsh.health')
+  if (health.kind !== 'json-file' || typeof health.path !== 'string' || health.path === '' || isAbsolute(health.path)
+    || health.path.split(/[\\/]/u).includes('..')) throw new DeepSyncError('ARTIFACT_INVALID', 'DSH health must declare a confined json-file path')
   await readFile(patchPath)
-  return { packageName: packageJson.name, version: packageJson.version, patchPath, deepSync }
+  return { packageName: packageJson.name, version: packageJson.version, patchPath, healthPath: health.path, deepSync }
 }

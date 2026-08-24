@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { help, main, VERSION } from '../src/index.ts'
+import { executionExitCode, EXIT_CODES, help, main, VERSION } from '../src/index.ts'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -25,9 +25,18 @@ describe('DeepSync CLI', () => {
     }
   })
 
-  it('returns a structured command error', async () => {
+  it('maps lifecycle terminal outcomes to stable exit codes', () => {
+    const digest = 'sha256:test' as never
+    expect(executionExitCode({ status: 'committed', planDigest: digest, observation: { value: {} }, replayed: false })).toBe(EXIT_CODES.success)
+    expect(executionExitCode({ status: 'rejected', planDigest: digest, reason: 'invalid', replayed: false })).toBe(EXIT_CODES.applyRejected)
+    expect(executionExitCode({ status: 'quarantined', planDigest: digest, reason: 'unhealthy', restored: true, replayed: false })).toBe(EXIT_CODES.applyQuarantined)
+  })
+
+  it('returns stable structured usage errors, including parser failures', async () => {
     const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
-    expect(await main(['unknown', '--json'])).toBe(1)
-    expect(String(error.mock.calls[0]?.[0])).toContain('COMMAND_FAILED')
+    expect(await main(['unknown', '--json'])).toBe(2)
+    expect(String(error.mock.calls[0]?.[0])).toContain('USAGE')
+    expect(await main(['status', '--state', '--json'])).toBe(2)
+    expect(String(error.mock.calls[1]?.[0])).toContain('requires a value')
   })
 })

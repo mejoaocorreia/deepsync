@@ -15,9 +15,17 @@ plugins consume contracts and sit above targets
 
 ## Lifecycle
 
-Every target mutation follows `ChangeRequest -> ChangePlan -> Validate -> Snapshot -> Apply -> Observe -> Health -> Commit`. A failure after mutation follows `Rollback -> Verify rollback -> Failed`, and the rejected artifact digest is quarantined. A committed snapshot becomes last-known-good.
+Every target mutation follows `ChangeRequest -> ChangePlan -> Validate -> Snapshot -> Apply -> Observe -> Health -> Commit`. A failure after mutation follows `Rollback -> Verify rollback -> Quarantine`. The terminal transaction, quarantine or LKG index, and per-target transaction head are published in one state revision.
 
-Manifest declarations are claims. Verifier evidence establishes compatibility and health. The DeepSync lock fixes source identity, artifact digest, resolved plugin version, target instance, and verifier evidence. Target-native package-manager locks remain authoritative for their dependency graphs.
+The request fingerprint binds target instance and canonical intent. A supplied plan must bind the exact request, target, adapter, artifact digest, and recomputed plan digest. Quarantine keys combine the target instance with the complete artifact digest. Only the current committed target head can be rolled back, so an older transaction cannot overwrite newer state.
+
+A pre-change snapshot is reserved for rollback. A second snapshot taken after successful health becomes the committed LKG. Recovery inspects durable phases, verifies an already attempted rollback before repeating it, repairs missing terminal indexes, and blocks a new mutation while the same target has an uncertain transaction. File-backed state uses compare-and-swap revisions, atomic replacement, durable file flushes, and a cross-process run lock.
+
+## Artifact plane
+
+A local DSH source is packed with pnpm before planning. The immutable `.tgz` cache name contains its complete SHA-256. Validation re-inspects all archive bytes, rejects archive links and traversal, validates package, DeepSync, DSH target, capability, patch, and health declarations, and checks the digest again immediately before staging inside the snapshotted profile. Target-native package-manager locks remain authoritative for dependency graphs.
+
+Manifest declarations are claims. Verifier evidence establishes compatibility and health. The DeepSync lock fixes source identity, artifact digest, resolved plugin version, target instance, and verifier evidence.
 
 ## Ownership
 
@@ -27,4 +35,4 @@ Compatibility, health, installation state, desired activation state, observed ac
 
 ## Reliability scope
 
-Alpha.1 applies only to isolated, disposable, or explicitly stopped target instances. It never mutates or restarts an active DSH Web profile. Advanced signing, containers, certification, telemetry, AI Doctor, Hub, accounts, ratings, payments, Creator, Worms, and targets other than DSH are outside Alpha.1.
+This alpha applies only to a newly created, dedicated target instance. It never mutates or restarts an active DSH Web profile. Advanced signing, containers, certification, telemetry, AI Doctor, Hub, accounts, ratings, payments, Creator, Worms, and targets other than DSH are out of scope.

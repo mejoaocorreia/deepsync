@@ -12,9 +12,12 @@ describe('deterministic doctor', () => {
     expect(report.evidence[1]).toMatchObject({ checkId: 'fail', status: 'fail', summary: 'deterministic failure' })
   })
 
-  it('checks the current Node runtime and readable paths', async () => {
-    const report = await runDoctor([nodeVersionCheck(22), readablePathCheck('cwd', process.cwd())])
+  it('checks the exact Node runtime range and readable paths', async () => {
+    const report = await runDoctor([nodeVersionCheck('22.19.0'), readablePathCheck('cwd', process.cwd())])
     expect(report.healthy).toBe(true)
     expect(report.evidence.map(item => item.status)).toEqual(['pass', 'pass'])
+    expect((await runDoctor([nodeVersionCheck('22.18.0')])).healthy).toBe(false)
+    expect((await runDoctor([nodeVersionCheck('23.9.0')])).healthy).toBe(false)
+    expect((await runDoctor([nodeVersionCheck('24.0.0')])).healthy).toBe(true)
   })
 })
