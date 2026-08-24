@@ -1,4 +1,5 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import type { ArtifactDigest } from '@deepsync/contracts'
@@ -52,6 +53,33 @@ export async function inspectPackedDshArtifact(filename: string): Promise<Packed
   }
 }
 
+async function publishPackedArtifact(source: string, destination: string, expected: ArtifactDigest): Promise<void> {
+  try {
+    await rename(source, destination)
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
+  }
+  const temporary = `${destination}.${crypto.randomUUID()}.tmp`
+  try {
+    await copyFile(source, temporary, constants.COPYFILE_EXCL)
+    if ((await inspectPackedDshArtifact(temporary)).artifactDigest !== expected) throw new DeepSyncError('ARTIFACT_INVALID', 'Cross-volume artifact copy changed bytes')
+    await chmod(temporary, 0o400)
+    try {
+      await rename(temporary, destination)
+    } catch (error) {
+      try {
+        if ((await inspectPackedDshArtifact(destination)).artifactDigest !== expected) throw error
+      } catch {
+        throw error
+      }
+    }
+    await rm(source, { force: true })
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
 function pnpmPackCommand(relativeDestination: string, cwd: string): DshCommand {
   if (process.platform === 'win32') {
     return { command: process.env.ComSpec ?? 'cmd.exe', prefixArgs: ['/d', '/s', '/c', `pnpm pack --pack-destination ${relativeDestination} --json`], cwd }
@@ -86,7 +114,7 @@ export async function packLocalDshArtifact(packageRoot: string, cacheDirectory: 
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof DeepSyncError && /not readable/u.test(error.message))) throw error
     }
-    await rename(packed.artifactPath, destination)
+    await publishPackedArtifact(packed.artifactPath, destination, packed.artifactDigest)
     await chmod(destination, 0o400)
     return await inspectPackedDshArtifact(destination)
   } finally {
