@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepsync.dev/schemas/plugin-manifest-v1.json",
+  "title": "DeepSync plugin manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "packageName", "version", "capabilities", "targets"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "packageName": {
+      "type": "string",
+      "pattern": "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "portability", "requirement"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "portability": { "enum": ["portable", "target-specific"] },
+          "requirement": { "enum": ["required", "optional"] },
+          "version": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "dsh": { "$ref": "https://deepsync.dev/schemas/dsh-target-binding-v1.json" }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["schemaVersion", "target"],
+        "properties": {
+          "schemaVersion": { "const": 1 },
+          "target": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import type { ArtifactDigest, ArtifactSource, Evidence, JsonValue } from '@deepsync/contracts'
+import type { ArtifactDigest, ArtifactSource, Evidence, GitHubReleaseSourceReferenceV1, JsonValue } from '@deepsync/contracts'
 
 function artifactDigest(bytes: Uint8Array): ArtifactDigest {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}` as ArtifactDigest
@@ -10,19 +10,13 @@ function artifactDigest(bytes: Uint8Array): ArtifactDigest {
 export const GITHUB_SOURCE_ID = 'github-public-release'
 
 export class GitHubSourceError extends Error {
-  constructor(readonly code: 'INVALID_REFERENCE' | 'HTTP_ERROR' | 'SIZE_LIMIT' | 'DIGEST_MISMATCH' | 'CACHE_ERROR', message: string, options?: ErrorOptions) {
+  constructor(readonly code: 'INVALID_REFERENCE' | 'NOT_FOUND' | 'RATE_LIMITED' | 'HTTP_ERROR' | 'SIZE_LIMIT' | 'DIGEST_MISMATCH' | 'CACHE_ERROR', message: string, options?: ErrorOptions) {
     super(message, options)
     this.name = 'GitHubSourceError'
   }
 }
 
-export interface GitHubReleaseReference {
-  readonly owner: string
-  readonly repository: string
-  readonly tag: string
-  readonly asset: string
-  readonly digest: ArtifactDigest
-}
+export type GitHubReleaseReference = GitHubReleaseSourceReferenceV1
 
 export interface GitHubSourceOptions {
   readonly downloadDirectory: string
@@ -38,12 +32,15 @@ function segment(value: string, name: string): string {
 function parseReference(value: JsonValue): GitHubReleaseReference {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new GitHubSourceError('INVALID_REFERENCE', 'GitHub reference must be an object')
   const input = value as Readonly<Record<string, JsonValue>>
-  if (Object.keys(input).some(key => !['owner', 'repository', 'tag', 'asset', 'digest'].includes(key))
+  if (Object.keys(input).some(key => !['schemaVersion', 'kind', 'owner', 'repository', 'tag', 'asset', 'digest'].includes(key))
+    || input.schemaVersion !== 1 || input.kind !== 'github-release'
     || typeof input.owner !== 'string' || typeof input.repository !== 'string' || typeof input.tag !== 'string'
     || typeof input.asset !== 'string' || typeof input.digest !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(input.digest)) {
-    throw new GitHubSourceError('INVALID_REFERENCE', 'GitHub reference fields are invalid')
+    throw new GitHubSourceError('INVALID_REFERENCE', 'GitHub release reference requires schemaVersion, kind, owner, repository, immutable tag, exact asset, and SHA-256 digest')
   }
-  return { owner: segment(input.owner, 'owner'), repository: segment(input.repository, 'repository'), tag: segment(input.tag, 'tag'), asset: segment(input.asset, 'asset'), digest: input.digest as ArtifactDigest }
+  const tag = segment(input.tag, 'tag')
+  if (['latest', 'main', 'master', 'head'].includes(tag.toLowerCase())) throw new GitHubSourceError('INVALID_REFERENCE', 'GitHub release tag must be immutable and explicit')
+  return { schemaVersion: 1, kind: 'github-release', owner: segment(input.owner, 'owner'), repository: segment(input.repository, 'repository'), tag, asset: segment(input.asset, 'asset'), digest: input.digest as ArtifactDigest }
 }
 
 export class GitHubReleaseSource implements ArtifactSource {
@@ -68,6 +65,8 @@ export class GitHubReleaseSource implements ArtifactSource {
 
     const url = `https://github.com/${reference.owner}/${reference.repository}/releases/download/${reference.tag}/${reference.asset}`
     const response = await this.#fetcher(url, { redirect: 'follow' })
+    if (response.status === 404) throw new GitHubSourceError('NOT_FOUND', `GitHub release tag or exact asset was not found: ${reference.owner}/${reference.repository}@${reference.tag}/${reference.asset}`)
+    if (response.status === 403 || response.status === 429) throw new GitHubSourceError('RATE_LIMITED', `GitHub public release download was rate-limited with HTTP ${response.status}`)
     if (!response.ok) throw new GitHubSourceError('HTTP_ERROR', `GitHub release asset returned HTTP ${response.status}`)
     if (response.body === null) throw new GitHubSourceError('HTTP_ERROR', 'GitHub release asset has no response body')
     const declaredLength = Number(response.headers.get('content-length'))

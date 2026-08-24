@@ -1,12 +1,31 @@
 {
   "name": "@deepsync/contracts",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Target-neutral public contracts for DeepSync",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
-  "files": ["dist", "README.md"],
-  "scripts": { "build": "tsdown src/index.ts --format esm --dts --clean" },
-  "publishConfig": { "access": "public" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./schemas/plugin-manifest-v1.json": "./schemas/plugin-manifest-v1.json",
+    "./schemas/dsh-target-binding-v1.json": "./schemas/dsh-target-binding-v1.json",
+    "./schemas/dsh-health-result-v1.json": "./schemas/dsh-health-result-v1.json"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "ajv": "8.17.1"
+  }
 }

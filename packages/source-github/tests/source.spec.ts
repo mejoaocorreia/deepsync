@@ -10,7 +10,7 @@ function artifactDigest(bytes: Uint8Array): ArtifactDigest {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}` as ArtifactDigest
 }
 
-const reference = (digest: ArtifactDigest) => ({ owner: 'owner', repository: 'repo', tag: 'v1.0.0', asset: 'plugin.tgz', digest })
+const reference = (digest: ArtifactDigest) => ({ schemaVersion: 1, kind: 'github-release', owner: 'owner', repository: 'repo', tag: 'v1.0.0', asset: 'plugin.tgz', digest } as const)
 
 describe('GitHubReleaseSource', () => {
   it('streams, verifies, and reuses a full-digest offline cache', async () => {
@@ -34,8 +34,17 @@ describe('GitHubReleaseSource', () => {
 
   it('rejects unsafe or unknown reference fields', async () => {
     const source = new GitHubReleaseSource({ downloadDirectory: tmpdir(), fetcher: async () => new Response('unused') })
-    await expect(source.resolve({ owner: '..', repository: 'repo', tag: 'v1', asset: 'plugin.tgz', digest: `sha256:${'0'.repeat(64)}` })).rejects.toMatchObject({ code: 'INVALID_REFERENCE' })
+    await expect(source.resolve({ ...reference(`sha256:${'0'.repeat(64)}` as ArtifactDigest), owner: '..' })).rejects.toMatchObject({ code: 'INVALID_REFERENCE' })
     await expect(source.resolve({ ...reference(`sha256:${'0'.repeat(64)}` as ArtifactDigest), extra: true })).rejects.toMatchObject({ code: 'INVALID_REFERENCE' })
+  })
+
+  it('rejects mutable tags and reports not-found and rate-limit outcomes', async () => {
+    const digest = `sha256:${'0'.repeat(64)}` as ArtifactDigest
+    const source = new GitHubReleaseSource({ downloadDirectory: tmpdir(), fetcher: async () => new Response('', { status: 404 }) })
+    await expect(source.resolve({ ...reference(digest), tag: 'latest' })).rejects.toMatchObject({ code: 'INVALID_REFERENCE' })
+    await expect(source.resolve(reference(digest))).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    const limited = new GitHubReleaseSource({ downloadDirectory: tmpdir(), fetcher: async () => new Response('', { status: 429 }) })
+    await expect(limited.resolve(reference(digest))).rejects.toMatchObject({ code: 'RATE_LIMITED' })
   })
 
   it('rejects digest mismatches and response size violations', async () => {

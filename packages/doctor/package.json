@@ -1,13 +1,29 @@
 {
   "name": "@deepsync/doctor",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Deterministic evidence-based diagnostics for DeepSync",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
-  "files": ["dist", "README.md"],
-  "scripts": { "build": "tsdown src/index.ts --format esm --dts --clean" },
-  "dependencies": { "@deepsync/contracts": "workspace:^", "@deepsync/core": "workspace:^" },
-  "publishConfig": { "access": "public" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@deepsync/contracts": "workspace:^",
+    "@deepsync/core": "workspace:^",
+    "@deepsync/target-dsh": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

@@ -52,8 +52,8 @@ describe('DSH bundle artifacts', () => {
     try {
       await cp(fixture, directory, { recursive: true })
       const filename = join(directory, 'deepsync.manifest.json')
-      const manifest = JSON.parse(await readFile(filename, 'utf8')) as { targets: { dsh: { version: string } } }
-      manifest.targets.dsh.version = '0.1.1'
+      const manifest = JSON.parse(await readFile(filename, 'utf8')) as { targets: { dsh: { runtime: { version: string } } } }
+      manifest.targets.dsh.runtime.version = '0.1.1'
       await writeFile(filename, `${JSON.stringify(manifest, null, 2)}\n`)
       await expect(readDshBundleManifest(directory)).rejects.toMatchObject({ code: 'TARGET_UNSUPPORTED' })
     } finally {

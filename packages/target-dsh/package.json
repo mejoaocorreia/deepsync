@@ -1,6 +1,6 @@
 {
   "name": "@deepsync/target-dsh",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "DeepSeek Harness target adapter for DeepSync",
   "private": true,
   "type": "module",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@deepsync/contracts": "workspace:^",
     "@deepsync/core": "workspace:^",
+    "semver": "7.7.2",
     "tar": "7.5.22"
   },
   "publishConfig": {

@@ -1,6 +1,6 @@
 {
   "name": "deepsync",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "DeepSync command-line interface",
   "private": true,
   "type": "module",

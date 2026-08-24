@@ -66,7 +66,7 @@ describe('compatibility and health dimensions', () => {
 
 describe('manifest and target registry', () => {
   it('validates plugin identity and disposes target registrations', () => {
-    const manifest = validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: 'plugin', version: '1.0.0', capabilities: [], targets: {} })
+    const manifest = validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: 'plugin', version: '1.0.0', capabilities: [], targets: { fake: { schemaVersion: 1, target: 'fake' } } })
     expect(manifest.packageName).toBe('plugin')
     const registry = new TargetRegistry()
     const dispose = registry.register({ id: 'target' as never, target: 'fake', version: '1', root: '/', metadata: {}, capabilities: [] })
@@ -78,7 +78,7 @@ describe('manifest and target registry', () => {
 
   it('rejects invalid JSON and invalid plugin identity', () => {
     expect(() => canonicalJson({ invalid: undefined } as never)).toThrowError(DeepSyncError)
-    expect(() => validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: '', version: '1', capabilities: [], targets: {} })).toThrow(/required/u)
+    expect(() => validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: '', version: '1', capabilities: [], targets: {} })).toThrow(/packageName/u)
   })
 })
 

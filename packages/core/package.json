@@ -1,6 +1,6 @@
 {
   "name": "@deepsync/core",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "Headless target-neutral DeepSync lifecycle core",
   "private": true,
   "type": "module",

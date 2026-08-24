@@ -1,4 +1,6 @@
 import { access } from 'node:fs/promises'
+
+export * from './plugin.ts'
 import type { DoctorCheck, Evidence } from '@deepsync/contracts'
 
 export interface DoctorReport {

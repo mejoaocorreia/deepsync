@@ -2,4 +2,4 @@
     - id: deepsync-lifecycle-probe
       name: '@deepsync/fixture-dsh-lifecycle-probe'
       config:
-        mode: !!js process.env.DEEPSYNC_PROBE_MODE || 'healthy'
+        mode: healthy

@@ -59,6 +59,7 @@ jobs:
             dsh/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir dsh install --frozen-lockfile
-      - run: pnpm exec vitest run packages/target-dsh/tests/vertical-slice.e2e.spec.ts --reporter=verbose
+      - run: pnpm run build && pnpm run pack:all
+      - run: pnpm exec vitest run packages/target-dsh/tests/vertical-slice.e2e.spec.ts packages/target-dsh/tests/external-author.e2e.spec.ts --reporter=verbose
         env:
           DSH_CHECKOUT: ${{ github.workspace }}/dsh

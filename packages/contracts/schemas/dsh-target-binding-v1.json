@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deepsync.dev/schemas/dsh-target-binding-v1.json",
+  "title": "DeepSync DSH target binding v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "target", "runtime", "health"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "target": { "const": "dsh" },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "node"],
+      "properties": {
+        "name": { "const": "deepseek-harness" },
+        "version": { "type": "string", "minLength": 1 },
+        "node": { "type": "string", "minLength": 1 }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "protocol", "transport", "path"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocol": { "const": "deepsync.health/v1" },
+        "transport": { "const": "json-file" },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+"
+        }
+      }
+    }
+  }
+}
