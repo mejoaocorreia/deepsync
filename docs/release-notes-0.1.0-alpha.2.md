@@ -18,6 +18,10 @@ Alpha.2 hardens the Foundation vertical slice for reproducible public evaluation
 
 DSH compatibility is limited to version `0.1.1-rc.2` at public source commit `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`. CI checks the packed healthy path, deterministic activation and health failures, verified rollback, quarantine, and prior committed LKG restoration against that exact commit.
 
+## Packaging scope
+
+Repeated `pnpm pack` runs produce byte-identical archives for the five library packages. The CLI archive can differ because pnpm rewrites `workspace:` dependencies into the same published ranges but emits those JSON keys in varying order. Runtime files, dependency names and ranges, installed behavior, and the packed consumer checks remain identical. This upstream serialization detail is outside DeepSync's managed-extension identity guarantee: each managed extension is identified by the SHA-256 of the actual `.tgz` bytes, and the release attaches checksums for its single immutable asset set.
+
 ## Safety limits
 
 Only a newly created `deepsync-test` profile in a dedicated nonce-bound home is supported. Existing profiles, copied markers, the active Web profile, migration, other targets, Hub/UI, telemetry, signing, Creator, Worms, and AI Doctor remain out of scope.
