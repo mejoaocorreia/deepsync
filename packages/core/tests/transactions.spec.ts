@@ -99,6 +99,16 @@ describe('LifecycleManager', () => {
     expect((await manager.state()).lastKnownGood[TARGET]).toBeDefined()
   })
 
+  it('rolls back a committed transaction on explicit operator request', async () => {
+    const adapter = new FakeAdapter()
+    const manager = new LifecycleManager({ adapters: [adapter] })
+    await manager.execute(request('operator-rollback'))
+    expect(adapter.value).toBe('next')
+    const result = await manager.rollback('operator-rollback')
+    expect(result).toMatchObject({ status: 'quarantined', restored: true, reason: 'Operator requested rollback' })
+    expect(adapter.value).toBe('initial')
+  })
+
   it('rejects before mutation when validation fails', async () => {
     const adapter = new FakeAdapter()
     adapter.failAt = 'validate'

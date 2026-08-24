@@ -38,6 +38,12 @@ export async function createIsolatedDshInstance(command: DshCommand, home: strin
   return instance
 }
 
+export async function openIsolatedDshInstance(command: DshCommand, home: string): Promise<IsolatedDshInstance> {
+  const instance: IsolatedDshInstance = { command, home: resolve(home), profile: PROFILE }
+  await assertIsolated(instance)
+  return instance
+}
+
 export async function assertIsolated(instance: IsolatedDshInstance): Promise<void> {
   const marker = JSON.parse(await readFile(join(instance.home, MARKER), 'utf8')) as { createdBy?: string }
   if (marker.createdBy !== 'deepsync') throw new Error(`DSH home is not owned by DeepSync isolation: ${instance.home}`)

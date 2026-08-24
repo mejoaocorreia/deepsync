@@ -136,6 +136,18 @@ export class LifecycleManager {
     })
   }
 
+  async rollback(requestId: string): Promise<ExecutionResult> {
+    return await this.#lock.withExclusive(async () => {
+      const state = await this.#state.load()
+      const record = state.transactions[requestId]
+      if (record === undefined) throw new Error(`Transaction ${requestId} does not exist`)
+      if (record.phase === 'quarantined') return terminalResult(record, true)!
+      if (record.phase !== 'committed') throw new Error(`Transaction ${requestId} is not committed`)
+      if (record.snapshot === undefined || record.executionId === undefined) throw new Error(`Transaction ${requestId} has no rollback snapshot`)
+      return await this.#rollback(state, record, this.#adapter(record.adapterId), new Error('Operator requested rollback'))
+    })
+  }
+
   async recover(): Promise<readonly TransactionRecord[]> {
     return await this.#lock.withExclusive(async () => {
       let state = await this.#state.load()
