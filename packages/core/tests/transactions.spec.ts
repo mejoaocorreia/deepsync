@@ -13,15 +13,38 @@ import type {
   TargetSnapshot,
 } from '@deepsync/contracts'
 import { describe, expect, it } from 'vitest'
-import { LifecycleManager, MemoryStateStore, planDigest, requestFingerprint } from '../src/index.ts'
+import {
+  LifecycleManager,
+  MemoryStateStore,
+  emptyState,
+  planDigest,
+  requestFingerprint,
+  type StateStore,
+  type StoredState,
+} from '../src/index.ts'
 
 const TARGET = 'fake-instance' as TargetInstanceId
+const OTHER_TARGET = 'other-instance' as TargetInstanceId
 const ARTIFACT = `sha256:${'a'.repeat(64)}` as ArtifactDigest
 const now = '2026-08-24T00:00:00.000Z'
 const pass = (id: string): Evidence => ({ checkId: id, status: 'pass', summary: id, observedAt: now })
 
-function request(id: string, value = 'next'): ChangeRequest {
-  return { requestId: id as RequestId, targetInstanceId: TARGET, intent: { adapterId: 'fake', value } }
+function request(id: string, value = 'next', targetInstanceId = TARGET): ChangeRequest {
+  return { requestId: id as RequestId, targetInstanceId, intent: { adapterId: 'fake', value } }
+}
+
+class RecordingStateStore implements StateStore {
+  readonly delegate = new MemoryStateStore()
+  readonly saves: StoredState[] = []
+
+  async load(): Promise<StoredState> {
+    return await this.delegate.load()
+  }
+
+  async save(expectedRevision: number, next: StoredState): Promise<void> {
+    this.saves.push(structuredClone(next))
+    await this.delegate.save(expectedRevision, next)
+  }
 }
 
 class FakeAdapter implements TargetAdapter {
@@ -34,7 +57,7 @@ class FakeAdapter implements TargetAdapter {
   async plan(input: ChangeRequest): Promise<ChangePlan> {
     this.calls.push('plan')
     const intent = input.intent as Readonly<Record<string, JsonValue>>
-    return { schemaVersion: 1, adapterId: this.id, targetInstanceId: TARGET, artifactDigest: ARTIFACT, operations: [{ set: intent.value ?? null }], metadata: {} }
+    return { schemaVersion: 1, adapterId: this.id, targetInstanceId: input.targetInstanceId, artifactDigest: ARTIFACT, operations: [{ set: intent.value ?? null }], metadata: {} }
   }
 
   async validate(): Promise<readonly Evidence[]> {
@@ -85,28 +108,46 @@ class FakeAdapter implements TargetAdapter {
 }
 
 describe('LifecycleManager', () => {
-  it('commits in lifecycle order and replays idempotently without adapter calls', async () => {
+  it('commits in lifecycle order, records committed LKG, and replays without adapter calls', async () => {
     const adapter = new FakeAdapter()
     const manager = new LifecycleManager({ adapters: [adapter] })
     const first = await manager.execute(request('one'))
     expect(first).toMatchObject({ status: 'committed', replayed: false })
-    expect(adapter.value).toBe('next')
-    expect(adapter.calls).toEqual(['plan', 'validate', 'snapshot', 'apply', 'observe', 'health'])
+    expect(adapter.calls).toEqual(['plan', 'validate', 'snapshot', 'apply', 'observe', 'health', 'snapshot'])
+    const state = await manager.state()
+    expect(state.lastKnownGood[TARGET]).toEqual({ ref: { value: 'next' } })
+    expect(state.targetHeads[TARGET]).toBe('one')
     const count = adapter.calls.length
-    const replay = await manager.execute(request('one'))
-    expect(replay).toMatchObject({ status: 'committed', replayed: true })
+    expect(await manager.execute(request('one'))).toMatchObject({ status: 'committed', replayed: true })
     expect(adapter.calls).toHaveLength(count)
-    expect((await manager.state()).lastKnownGood[TARGET]).toBeDefined()
   })
 
-  it('rolls back a committed transaction on explicit operator request', async () => {
+  it('publishes terminal records and their indexes atomically', async () => {
+    const committedStore = new RecordingStateStore()
+    const committedAdapter = new FakeAdapter()
+    await new LifecycleManager({ adapters: [committedAdapter], state: committedStore }).execute(request('atomic-commit'))
+    const committed = committedStore.saves.find(state => state.transactions['atomic-commit']?.phase === 'committed')!
+    expect(committed.lastKnownGood[TARGET]).toBeDefined()
+    expect(committed.targetHeads[TARGET]).toBe('atomic-commit')
+
+    const failedStore = new RecordingStateStore()
+    const failedAdapter = new FakeAdapter()
+    failedAdapter.unhealthy = true
+    await new LifecycleManager({ adapters: [failedAdapter], state: failedStore }).execute(request('atomic-quarantine'))
+    const quarantined = failedStore.saves.find(state => state.transactions['atomic-quarantine']?.phase === 'quarantined')!
+    expect(Object.values(quarantined.quarantined)).toHaveLength(1)
+  })
+
+  it('rolls back only the current committed target head', async () => {
     const adapter = new FakeAdapter()
     const manager = new LifecycleManager({ adapters: [adapter] })
-    await manager.execute(request('operator-rollback'))
-    expect(adapter.value).toBe('next')
-    const result = await manager.rollback('operator-rollback')
-    expect(result).toMatchObject({ status: 'quarantined', restored: true, reason: 'Operator requested rollback' })
-    expect(adapter.value).toBe('initial')
+    await manager.execute(request('head-one', 'one'))
+    await manager.execute(request('head-two', 'two'))
+    await expect(manager.rollback('head-one')).rejects.toMatchObject({ code: 'TARGET_HEAD_MISMATCH' })
+    expect(adapter.value).toBe('two')
+    expect(await manager.rollback('head-two')).toMatchObject({ status: 'quarantined', restored: true })
+    expect(adapter.value).toBe('one')
+    expect((await manager.state()).targetHeads[TARGET]).toBe('head-one')
   })
 
   it('rejects before mutation when validation fails', async () => {
@@ -130,34 +171,87 @@ describe('LifecycleManager', () => {
     expect(Object.keys((await manager.state()).quarantined)).toHaveLength(1)
   })
 
-  it('rolls back an unhealthy observation and blocks the same digest', async () => {
+  it('quarantines artifact bytes across plan metadata changes', async () => {
     const adapter = new FakeAdapter()
     adapter.unhealthy = true
     const manager = new LifecycleManager({ adapters: [adapter] })
-    const first = await manager.execute(request('unhealthy'))
-    expect(first).toMatchObject({ status: 'quarantined', restored: true, reason: 'fixture unhealthy' })
-    await expect(manager.execute(request('same-plan-new-request'))).rejects.toMatchObject({ code: 'PLAN_QUARANTINED' })
+    expect(await manager.execute(request('unhealthy', 'one'))).toMatchObject({ status: 'quarantined', restored: true })
+    await expect(manager.execute(request('changed-plan', 'two'))).rejects.toMatchObject({ code: 'PLAN_QUARANTINED' })
   })
 
-  it('rejects request id reuse with different intent before adapter work', async () => {
+  it('binds idempotency to target and rejects tampered supplied plans', async () => {
     const adapter = new FakeAdapter()
     const manager = new LifecycleManager({ adapters: [adapter] })
-    await manager.execute(request('same-id', 'one'))
+    await manager.execute(request('same-id'))
+    await expect(manager.execute(request('same-id', 'next', OTHER_TARGET))).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+
+    const planned = await manager.plan(request('tampered', 'safe'))
+    const tampered = { ...planned, plan: { ...planned.plan, metadata: { injected: true } } }
     const count = adapter.calls.length
-    await expect(manager.execute(request('same-id', 'two'))).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
+    await expect(manager.execute(request('tampered', 'safe'), tampered)).rejects.toMatchObject({ code: 'PLAN_INVALID' })
     expect(adapter.calls).toHaveLength(count)
   })
 
-  it('recovers an uncertain applied transaction by rollback without replaying apply', async () => {
+  it('recovers a durably uncertain applying transaction without replaying apply', async () => {
     const adapter = new FakeAdapter()
-    const store = new MemoryStateStore()
-    const manager = new LifecycleManager({ adapters: [adapter], state: store })
-    adapter.failAt = 'observe'
-    await manager.execute(request('recover-source'))
-    const state = await store.load()
-    const quarantined = state.transactions['recover-source']
-    expect(quarantined?.phase).toBe('quarantined')
-    expect(await manager.recover()).toEqual([])
+    const bootstrap = new LifecycleManager({ adapters: [adapter] })
+    const input = request('recover-applying')
+    const planned = await bootstrap.plan(input)
+    const initial: StoredState = {
+      ...emptyState(),
+      revision: 1,
+      transactions: {
+        [input.requestId]: {
+          requestId: input.requestId,
+          requestFingerprint: planned.requestFingerprint,
+          phase: 'applying',
+          adapterId: adapter.id,
+          targetInstanceId: input.targetInstanceId,
+          artifactDigest: planned.plan.artifactDigest,
+          planDigest: planned.planDigest,
+          plan: planned.plan as unknown as JsonValue,
+          executionId: 'execution-recovery' as ExecutionId,
+          snapshot: { ref: { value: 'initial' } },
+        },
+      },
+    }
+    adapter.value = 'mutated'
+    adapter.calls = []
+    const manager = new LifecycleManager({ adapters: [adapter], state: new MemoryStateStore(initial) })
+    const recovered = await manager.recover()
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]).toMatchObject({ phase: 'quarantined', restored: true })
+    expect(adapter.calls).toEqual(['rollback', 'verifyRollback'])
+    expect(adapter.value).toBe('initial')
+  })
+
+  it('verifies first when recovering a rollback that may already have completed', async () => {
+    const adapter = new FakeAdapter()
+    const input = request('recover-verifying')
+    const planned = await new LifecycleManager({ adapters: [adapter] }).plan(input)
+    const initial: StoredState = {
+      ...emptyState(),
+      revision: 1,
+      transactions: {
+        [input.requestId]: {
+          requestId: input.requestId,
+          requestFingerprint: planned.requestFingerprint,
+          phase: 'verifying-rollback',
+          adapterId: adapter.id,
+          targetInstanceId: input.targetInstanceId,
+          artifactDigest: planned.plan.artifactDigest,
+          planDigest: planned.planDigest,
+          plan: planned.plan as unknown as JsonValue,
+          executionId: 'execution-verifying' as ExecutionId,
+          snapshot: { ref: { value: 'initial' } },
+          failure: { code: 'UNEXPECTED', message: 'crash', phase: 'rolling-back' },
+        },
+      },
+    }
+    adapter.calls = []
+    const manager = new LifecycleManager({ adapters: [adapter], state: new MemoryStateStore(initial) })
+    await manager.recover()
+    expect(adapter.calls).toEqual(['verifyRollback'])
   })
 })
 

@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ArtifactDigest, DeepSyncLockfile, PlanDigest, PluginId, TargetInstanceId } from '@deepsync/contracts'
 import { describe, expect, it } from 'vitest'
 import {
   DeepSyncError,
+  FileRunLock,
   JsonFileStateStore,
   TargetRegistry,
   canonicalJson,
@@ -94,6 +95,45 @@ describe('file state', () => {
       expect(JSON.parse(await readFile(filename, 'utf8')).schemaVersion).toBe(1)
       await expect(store.save(0, { ...next, revision: 2 })).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects malformed durable maps with STATE_CORRUPT', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'deepsync-corrupt-'))
+    const filename = join(directory, 'state.json')
+    try {
+      await writeFile(filename, JSON.stringify({ schemaVersion: 1, revision: 0, transactions: [], quarantined: {}, lastKnownGood: {} }))
+      await expect(new JsonFileStateStore(filename).load()).rejects.toMatchObject({ code: 'STATE_CORRUPT' })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('serializes independent managers with a cross-process file lock', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'deepsync-lock-'))
+    const filename = join(directory, 'run.lock')
+    let releaseFirst!: () => void
+    const firstMayExit = new Promise<void>(resolve => { releaseFirst = resolve })
+    let firstEntered!: () => void
+    const firstIsInside = new Promise<void>(resolve => { firstEntered = resolve })
+    const events: string[] = []
+    try {
+      const first = new FileRunLock(filename).withExclusive(async () => {
+        events.push('first-enter')
+        firstEntered()
+        await firstMayExit
+        events.push('first-exit')
+      })
+      await firstIsInside
+      const second = new FileRunLock(filename).withExclusive(async () => { events.push('second-enter') })
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(events).toEqual(['first-enter'])
+      releaseFirst()
+      await Promise.all([first, second])
+      expect(events).toEqual(['first-enter', 'first-exit', 'second-enter'])
+    } finally {
+      releaseFirst()
       await rm(directory, { recursive: true, force: true })
     }
   })
