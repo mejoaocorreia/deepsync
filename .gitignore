@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tgz
+artifacts/
 .deepsync/
 *.tsbuildinfo
 .env

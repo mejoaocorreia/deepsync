@@ -28,6 +28,11 @@ describe('GitHubReleaseSource', () => {
     }
   })
 
+  it('rejects unsafe references', async () => {
+    const source = new GitHubReleaseSource({ downloadDirectory: tmpdir(), fetcher: async () => new Response('unused') })
+    await expect(source.resolve({ owner: '..', repository: 'repo', tag: 'v1', asset: 'plugin.tgz', digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(/invalid GitHub owner/iu)
+  })
+
   it('rejects a digest mismatch', async () => {
     const source = new GitHubReleaseSource({ downloadDirectory: tmpdir(), fetcher: async () => new Response('wrong') })
     await expect(source.resolve({ owner: 'owner', repository: 'repo', tag: 'v1', asset: 'plugin.tgz', digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(/digest mismatch/u)

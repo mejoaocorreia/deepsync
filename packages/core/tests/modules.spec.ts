@@ -6,10 +6,15 @@ import { describe, expect, it } from 'vitest'
 import {
   DeepSyncError,
   JsonFileStateStore,
+  TargetRegistry,
+  canonicalJson,
   emptyState,
+  evaluateCapabilities,
+  healthReport,
   orderDependencies,
   parseLockfile,
   serializeLockfile,
+  validatePluginManifest,
 } from '../src/index.ts'
 
 describe('dependency graph', () => {
@@ -39,6 +44,40 @@ describe('lockfile', () => {
     const text = serializeLockfile(lock)
     expect(text.indexOf('"a"')).toBeLessThan(text.indexOf('"z"'))
     expect(parseLockfile(text).entries).toHaveLength(2)
+  })
+})
+
+describe('compatibility and health dimensions', () => {
+  it('keeps required and optional capability outcomes distinct', () => {
+    const report = evaluateCapabilities([
+      { id: 'required', portability: 'portable', requirement: 'required' },
+      { id: 'optional', portability: 'target-specific', requirement: 'optional' },
+    ], [{ id: 'required', portability: 'portable', requirement: 'required' }], '2026-08-24T00:00:00Z')
+    expect(report).toMatchObject({ compatible: true, requiredSatisfied: true })
+    expect(report.evidence.map(item => item.status)).toEqual(['pass', 'warn'])
+    expect(healthReport(report.evidence).healthy).toBe(true)
+  })
+
+  it('rejects a missing required capability', () => {
+    expect(evaluateCapabilities([{ id: 'missing', portability: 'portable', requirement: 'required' }], [], '2026-08-24T00:00:00Z')).toMatchObject({ compatible: false })
+  })
+})
+
+describe('manifest and target registry', () => {
+  it('validates plugin identity and disposes target registrations', () => {
+    const manifest = validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: 'plugin', version: '1.0.0', capabilities: [], targets: {} })
+    expect(manifest.packageName).toBe('plugin')
+    const registry = new TargetRegistry()
+    const dispose = registry.register({ id: 'target' as never, target: 'fake', version: '1', root: '/', metadata: {}, capabilities: [] })
+    expect(registry.list()).toHaveLength(1)
+    expect(() => registry.register({ id: 'target' as never, target: 'fake', version: '1', root: '/', metadata: {}, capabilities: [] })).toThrow(/already registered/u)
+    dispose()
+    expect(registry.list()).toEqual([])
+  })
+
+  it('rejects invalid JSON and invalid plugin identity', () => {
+    expect(() => canonicalJson({ invalid: undefined } as never)).toThrowError(DeepSyncError)
+    expect(() => validatePluginManifest({ schemaVersion: 1, id: 'plugin' as never, packageName: '', version: '1', capabilities: [], targets: {} })).toThrow(/required/u)
   })
 })
 

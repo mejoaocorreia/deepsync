@@ -15,12 +15,16 @@
     "test:coverage": "vitest run --coverage",
     "lint": "oxlint .",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
-    "pack:all": "node scripts/pack-all.mjs"
+    "publint": "node scripts/publint.mjs",
+    "pack:all": "node scripts/pack-all.mjs",
+    "pack:smoke": "node scripts/pack-smoke.mjs",
+    "release:check": "pnpm run check && pnpm run publint && pnpm run pack:all && pnpm run pack:smoke"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
     "@vitest/coverage-v8": "^4.1.8",
     "oxlint": "1.76.0",
+    "publint": "^0.3.24",
     "tsdown": "^0.22.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",

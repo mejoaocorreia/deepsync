@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runDoctor } from '../src/index.ts'
+import { nodeVersionCheck, readablePathCheck, runDoctor } from '../src/index.ts'
 
 describe('deterministic doctor', () => {
   it('reports independent evidence and contains check failures', async () => {
@@ -10,5 +10,11 @@ describe('deterministic doctor', () => {
     expect(report.healthy).toBe(false)
     expect(report.evidence).toHaveLength(2)
     expect(report.evidence[1]).toMatchObject({ checkId: 'fail', status: 'fail', summary: 'deterministic failure' })
+  })
+
+  it('checks the current Node runtime and readable paths', async () => {
+    const report = await runDoctor([nodeVersionCheck(22), readablePathCheck('cwd', process.cwd())])
+    expect(report.healthy).toBe(true)
+    expect(report.evidence.map(item => item.status)).toEqual(['pass', 'pass'])
   })
 })
