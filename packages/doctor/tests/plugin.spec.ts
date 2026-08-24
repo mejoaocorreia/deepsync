@@ -13,6 +13,7 @@ describe('plugin author validation', () => {
     try {
       const source = await validatePluginInput(fixture)
       expect(source).toMatchObject({ valid: true, inputKind: 'directory', pluginId: 'dsh-lifecycle-probe' })
+      expect(await validatePluginInput(resolve(import.meta.dirname, '..', '..', '..', 'docs', 'templates', 'dsh-plugin'))).toMatchObject({ valid: true, inputKind: 'directory', pluginId: 'example-ready' })
       const artifact = await packLocalDshArtifact(fixture, join(directory, 'artifacts'))
       expect(await validatePluginInput(artifact.artifactPath)).toMatchObject({ valid: true, inputKind: 'artifact', artifactDigest: artifact.artifactDigest })
     } finally {

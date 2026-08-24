@@ -1,0 +1,14 @@
+{
+  "name": "@example/deepsync-dsh-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "files": ["index.js", "cordis.patch.yml", "deepsync.manifest.json"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

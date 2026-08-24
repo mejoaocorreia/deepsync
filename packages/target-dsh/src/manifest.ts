@@ -38,6 +38,25 @@ function listedFile(files: readonly unknown[], filename: string): boolean {
   return files.some(entry => typeof entry === 'string' && entry.replace(/^\.\//u, '') === normalized)
 }
 
+function exportPaths(value: unknown): string[] {
+  if (typeof value === 'string') return value.startsWith('./') ? [value] : []
+  if (Array.isArray(value)) return value.flatMap(exportPaths)
+  if (value === null || typeof value !== 'object') return []
+  return Object.values(value).flatMap(exportPaths)
+}
+
+async function validateEntrypoint(root: string, files: readonly unknown[], entrypoint: string): Promise<void> {
+  let entryPath: string
+  try {
+    entryPath = await realpath(resolve(root, entrypoint))
+  } catch (error) {
+    throw new DeepSyncError('ARTIFACT_INVALID', `Published plugin entrypoint is not readable: ${entrypoint}`, { cause: error })
+  }
+  const relation = relative(root, entryPath)
+  if (relation.startsWith('..') || isAbsolute(relation) || !(await stat(entryPath)).isFile()) throw new DeepSyncError('ARTIFACT_INVALID', 'Published plugin entrypoint must identify a file inside the package')
+  if (!listedFile(files, entrypoint)) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json files must include every published plugin entrypoint')
+}
+
 function contractFailure(error: unknown): never {
   if (error instanceof ContractValidationError) {
     throw new DeepSyncError('ARTIFACT_INVALID', error.message, { cause: error })
@@ -59,12 +78,9 @@ export async function readDshBundleManifest(packageRoot: string): Promise<DshBun
   if (typeof packageJson.main !== 'string' && packageJson.exports === undefined) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json must declare main or exports')
   if (!Array.isArray(packageJson.files)) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json files must explicitly declare the published plugin files')
   if (!listedFile(packageJson.files, 'deepsync.manifest.json')) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json files must include deepsync.manifest.json')
-  if (typeof packageJson.main === 'string') {
-    const entryPath = await realpath(resolve(root, packageJson.main))
-    const relation = relative(root, entryPath)
-    if (relation.startsWith('..') || isAbsolute(relation) || !(await stat(entryPath)).isFile()) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json main must identify a file inside the package')
-    if (!listedFile(packageJson.files, packageJson.main)) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json files must include the main entrypoint')
-  }
+  const entrypoints = typeof packageJson.main === 'string' ? [packageJson.main] : exportPaths(packageJson.exports)
+  if (entrypoints.length === 0) throw new DeepSyncError('ARTIFACT_INVALID', 'package.json exports must declare at least one relative plugin entrypoint')
+  for (const entrypoint of new Set(entrypoints)) await validateEntrypoint(root, packageJson.files, entrypoint)
   const dsh = object(packageJson.dsh, 'package.json dsh')
   const bundle = object(dsh.bundle, 'package.json dsh.bundle')
   if (typeof bundle.patch !== 'string' || bundle.patch.trim() === '' || isAbsolute(bundle.patch)) throw new DeepSyncError('ARTIFACT_INVALID', 'dsh.bundle.patch must be a relative path')

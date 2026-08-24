@@ -24,6 +24,6 @@ Repeated `pnpm pack` runs produce byte-identical archives for the five library p
 
 ## Safety limits
 
-Only a newly created `deepsync-test` profile in a dedicated nonce-bound home is supported. Existing profiles, copied markers, the active Web profile, migration, other targets, Hub/UI, telemetry, signing, Creator, Worms, and AI Doctor remain out of scope.
+Only a newly created `deepsync-test` profile in a dedicated nonce-bound home is supported. Existing profiles, copied markers, the active Web profile, migration, other targets, Hub/UI, telemetry, signing, Creator, Hermes Projects adaptation, and AI Doctor remain out of scope.
 
 All npm package manifests remain private. This release can publish GitHub source and artifacts after gates pass, but npm publication requires verified namespace ownership and is not part of this checkpoint.

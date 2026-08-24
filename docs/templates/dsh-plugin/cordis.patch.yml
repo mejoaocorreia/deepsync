@@ -1,0 +1,4 @@
+- insert:
+    - id: example-ready
+      name: '@example/deepsync-dsh-plugin'
+      config: {}

@@ -1,3 +1,3 @@
 # @deepsync/source-github
 
-Minimal unauthenticated source for public GitHub release assets. Callers provide owner, repository, tag, asset name, and mandatory SHA-256 digest. The source validates path segments, downloads without OAuth, verifies bytes before publication, and writes a private local artifact file.
+Unauthenticated source for exact public GitHub Release assets. Callers provide owner, repository, immutable tag, exact asset name, and mandatory SHA-256 digest through `GitHubReleaseSourceReferenceV1`. The source rejects mutable tag aliases, validates path segments, reports not-found and rate-limit outcomes, streams with a size bound, verifies complete bytes before atomic cache publication, and reuses only digest-verified offline cache entries.

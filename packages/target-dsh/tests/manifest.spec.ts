@@ -37,6 +37,24 @@ describe('DSH bundle artifacts', () => {
     }
   }, 30_000)
 
+  it('validates exports-only entrypoints against published files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'deepsync-pack-exports-'))
+    try {
+      await cp(fixture, directory, { recursive: true })
+      const filename = join(directory, 'package.json')
+      const packageJson = JSON.parse(await readFile(filename, 'utf8')) as Record<string, unknown>
+      delete packageJson.main
+      packageJson.exports = { '.': { import: './index.js' } }
+      await writeFile(filename, `${JSON.stringify(packageJson, null, 2)}\n`)
+      await expect(readDshBundleManifest(directory)).resolves.toMatchObject({ packageName: '@deepsync/fixture-dsh-lifecycle-probe' })
+      packageJson.files = ['cordis.patch.yml', 'deepsync.manifest.json']
+      await writeFile(filename, `${JSON.stringify(packageJson, null, 2)}\n`)
+      await expect(readDshBundleManifest(directory)).rejects.toMatchObject({ code: 'ARTIFACT_INVALID' })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it('returns a structured error for malformed package metadata', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'deepsync-pack-malformed-'))
     try {

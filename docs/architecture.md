@@ -5,13 +5,12 @@ DeepSync is a target-neutral extension lifecycle platform. It is not an agent ha
 ## Dependency direction
 
 ```text
-contracts <- core <- doctor
-                 <- target adapters <- optional target-side bridges
-contracts <- sources
-plugins consume contracts and sit above targets
+contracts <- core <- target adapters <- doctor/CLI
+contracts <- sources ----------------------^
+plugins consume public contracts and sit above targets
 ```
 
-`@deepsync/core` has no dependency on DeepSeek Harness, Cordis, Cortex, MCP, React, GitHub sources, network access, or a plugin runtime. It starts with no adapters and uses in-memory state unless a caller supplies persistence.
+`@deepsync/core` has no dependency on DeepSeek Harness, Cordis, Cortex, MCP, React, GitHub sources, network access, or a plugin runtime. It starts with no adapters and uses in-memory state unless a caller supplies persistence. Doctor composes public target validation rather than introducing target knowledge into Core.
 
 ## Lifecycle
 
@@ -21,9 +20,15 @@ The request fingerprint binds target instance and canonical intent. A supplied p
 
 A pre-change snapshot is reserved for rollback. A second snapshot taken after successful health becomes the committed LKG. Recovery inspects durable phases, verifies an already attempted rollback before repeating it, repairs missing terminal indexes, and blocks a new mutation while the same target has an uncertain transaction. File-backed state uses compare-and-swap revisions, atomic replacement, durable file flushes, and a cross-process run lock.
 
+## Public plugin protocol
+
+The universal manifest owns plugin identity, semantic version, capabilities, and versioned target bindings. The DSH binding independently owns the exact runtime, Node.js range, and `deepsync.health/v1` declaration. Native `package.json` metadata continues to own `dsh.bundle.patch`; lifecycle results and Hub metadata are not stored in the plugin manifest.
+
+During activation, the DSH adapter provides a confined result path plus target and activation correlation identities. The plugin reports its own built identity and version in a versioned JSON health result. The adapter validates schema, timestamp, plugin identity, artifact version, target instance, and activation attempt. Loader observation and declared plugin health become separate evidence entries.
+
 ## Artifact plane
 
-A local DSH source is packed with pnpm before planning. The immutable `.tgz` cache name contains its complete SHA-256. Validation re-inspects all archive bytes, rejects archive links and traversal, validates package, DeepSync, DSH target, capability, patch, and health declarations, and checks the digest again immediately before staging inside the snapshotted profile. Target-native package-manager locks remain authoritative for dependency graphs.
+A local DSH source is packed with pnpm before planning. An exact public GitHub Release asset can enter the same flow only with an immutable tag, exact asset name, and mandatory complete SHA-256. The immutable `.tgz` cache name contains its digest. Validation re-inspects all archive bytes, rejects archive links and traversal, validates package, universal manifest, DSH binding, capability, entrypoint, published files, patch, and health declarations, and checks the digest again immediately before staging inside the snapshotted profile. Target-native package-manager locks remain authoritative for dependency graphs.
 
 Manifest declarations are claims. Verifier evidence establishes compatibility and health. The DeepSync lock fixes source identity, artifact digest, resolved plugin version, target instance, and verifier evidence.
 
@@ -35,4 +40,4 @@ Compatibility, health, installation state, desired activation state, observed ac
 
 ## Reliability scope
 
-This alpha applies only to a newly created, dedicated target instance. It never mutates or restarts an active DSH Web profile. Advanced signing, containers, certification, telemetry, AI Doctor, Hub, accounts, ratings, payments, Creator, Worms, and targets other than DSH are out of scope.
+This alpha applies only to a newly created, dedicated target instance. It never mutates or restarts an active DSH Web profile. Advanced signing, containers, certification, telemetry, AI Doctor, Hub, accounts, ratings, payments, Creator, Hermes Projects adaptation, and targets other than DSH are future work outside this alpha.

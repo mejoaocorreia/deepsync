@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "example-ready",
+  "packageName": "@example/deepsync-dsh-plugin",
+  "version": "1.0.0",
+  "capabilities": [
+    {
+      "id": "dsh.profile.bundle",
+      "portability": "target-specific",
+      "requirement": "required",
+      "version": "0.1.1-rc.2"
+    }
+  ],
+  "targets": {
+    "dsh": {
+      "schemaVersion": 1,
+      "target": "dsh",
+      "runtime": {
+        "name": "deepseek-harness",
+        "version": "0.1.1-rc.2",
+        "node": "^22.19.0 || >=24.0.0"
+      },
+      "health": {
+        "schemaVersion": 1,
+        "protocol": "deepsync.health/v1",
+        "transport": "json-file",
+        "path": "example-ready-health.json"
+      }
+    }
+  }
+}
