@@ -53,6 +53,37 @@ export async function inspectPackedDshArtifact(filename: string): Promise<Packed
   }
 }
 
+export async function cachePackedDshArtifact(filename: string, cacheDirectory: string): Promise<PackedDshArtifact> {
+  const source = await inspectPackedDshArtifact(filename)
+  await mkdir(cacheDirectory, { recursive: true })
+  const destination = join(resolve(cacheDirectory), `${source.artifactDigest.slice('sha256:'.length)}-${basename(source.artifactPath)}`)
+  try {
+    const existing = await inspectPackedDshArtifact(destination)
+    if (existing.artifactDigest !== source.artifactDigest) throw new DeepSyncError('ARTIFACT_INVALID', `Artifact cache collision at ${destination}`)
+    return existing
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof DeepSyncError && /not readable/u.test(error.message))) throw error
+  }
+  const temporary = `${destination}.${crypto.randomUUID()}.tmp`
+  try {
+    await copyFile(source.artifactPath, temporary, constants.COPYFILE_EXCL)
+    if ((await inspectPackedDshArtifact(temporary)).artifactDigest !== source.artifactDigest) throw new DeepSyncError('ARTIFACT_INVALID', 'Local artifact cache copy changed bytes')
+    await chmod(temporary, 0o400)
+    try {
+      await rename(temporary, destination)
+    } catch (error) {
+      try {
+        if ((await inspectPackedDshArtifact(destination)).artifactDigest !== source.artifactDigest) throw error
+      } catch {
+        throw error
+      }
+    }
+    return await inspectPackedDshArtifact(destination)
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
 async function publishPackedArtifact(source: string, destination: string, expected: ArtifactDigest): Promise<void> {
   try {
     await rename(source, destination)

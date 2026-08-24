@@ -40,6 +40,9 @@ describe('DeepSync CLI', () => {
     const fixture = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'dsh-lifecycle-probe')
     try {
       const packed = await packLocalDshArtifact(fixture, join(directory, 'packed'))
+      const local = await resolvePluginArtifact({ schemaVersion: 1, kind: 'local-artifact', path: packed.artifactPath, digest: packed.artifactDigest }, join(directory, 'local-cache'))
+      expect(local.artifact.artifactDigest).toBe(packed.artifactDigest)
+      expect(local.artifact.artifactPath).not.toBe(packed.artifactPath)
       const bytes = await readFile(packed.artifactPath)
       const fetcher = vi.fn(async () => new Response(bytes, { status: 200 }))
       const resolved = await resolvePluginArtifact({

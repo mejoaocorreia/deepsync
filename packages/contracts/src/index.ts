@@ -91,6 +91,13 @@ export interface LocalPackageSourceReferenceV1 {
   readonly path: string
 }
 
+export interface LocalArtifactSourceReferenceV1 {
+  readonly schemaVersion: 1
+  readonly kind: 'local-artifact'
+  readonly path: string
+  readonly digest: ArtifactDigest
+}
+
 export interface GitHubReleaseSourceReferenceV1 {
   readonly schemaVersion: 1
   readonly kind: 'github-release'
@@ -101,7 +108,7 @@ export interface GitHubReleaseSourceReferenceV1 {
   readonly digest: ArtifactDigest
 }
 
-export type ArtifactSourceReferenceV1 = LocalPackageSourceReferenceV1 | GitHubReleaseSourceReferenceV1
+export type ArtifactSourceReferenceV1 = LocalPackageSourceReferenceV1 | LocalArtifactSourceReferenceV1 | GitHubReleaseSourceReferenceV1
 
 export interface PackedArtifactReferenceV1 {
   readonly schemaVersion: 1

@@ -84,7 +84,7 @@ node apps/cli/dist/bin.mjs apply $Plan --state $State --json
 node apps/cli/dist/bin.mjs status --state $State --json
 ```
 
-Planning packs the local package, validates the complete `.tgz`, stores it by SHA-256, and binds that digest into the request and plan. Apply verifies the same bytes before staging. DSH `--dump-config`, exact installation, selected bundle, Loader execution, and correlated plugin health must all pass before commit. Failed activation or health triggers verified rollback and artifact quarantine; a prior committed LKG remains the target head.
+The positional source may be the package directory or its already packed `.tgz`. A directory is packed first; an existing artifact is copied atomically into the same digest-addressed cache. DeepSync validates the complete `.tgz` and binds its SHA-256 into the request and plan. Apply verifies the same bytes before staging. DSH `--dump-config`, exact installation, selected bundle, Loader execution, and correlated plugin health must all pass before commit. Failed activation or health triggers verified rollback and artifact quarantine; a prior committed LKG remains the target head.
 
 A direct `dsh --profile deepsync-test --dump-config` can inspect the isolated composed config, but DeepSync must own creation and lifecycle of the test home because it supplies the correlation values and verifies rollback.
 

@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { ArtifactDigest, ArtifactSourceReferenceV1, ChangeRequest, JsonValue, RequestId } from '@deepsync/contracts'
 import { DeepSyncError, FileRunLock, JsonFileStateStore, LifecycleManager, type ExecutionResult, type PlannedChange } from '@deepsync/core'
@@ -8,6 +8,7 @@ import {
   createIsolatedDshInstance,
   detectDsh,
   DshTargetAdapter,
+  inspectPackedDshArtifact,
   openIsolatedDshInstance,
   sourceCheckoutCommand,
   targetInstanceId,
@@ -127,14 +128,19 @@ async function assertStateTarget(lifecycle: LifecycleManager, target: IsolatedDs
   if (mismatched !== undefined) throw new DeepSyncError('TARGET_MISMATCH', `State file contains target ${mismatched.targetInstanceId}, expected ${expected}`)
 }
 
-function planSource(parsed: ParsedArgs): ArtifactSourceReferenceV1 {
+async function planSource(parsed: ParsedArgs): Promise<ArtifactSourceReferenceV1> {
   const sourcePath = parsed.positional[2]
   const github = parsed.options.github
   if (sourcePath !== undefined && github !== undefined) throw new CliUsageError('Choose either a local source path or --github, never both')
   if (sourcePath !== undefined) {
     if (parsed.positional.length !== 3) throw new CliUsageError('Usage: deepsync plan add <source> --dsh-root <path> --home <isolated-home>')
     if (parsed.options.tag !== undefined || parsed.options.asset !== undefined || parsed.options.digest !== undefined) throw new CliUsageError('--tag, --asset, and --digest require --github')
-    return { schemaVersion: 1, kind: 'local-package', path: resolve(sourcePath) }
+    const path = resolve(sourcePath)
+    if ((await stat(path)).isFile()) {
+      const artifact = await inspectPackedDshArtifact(path)
+      return { schemaVersion: 1, kind: 'local-artifact', path: artifact.artifactPath, digest: artifact.artifactDigest }
+    }
+    return { schemaVersion: 1, kind: 'local-package', path }
   }
   if (parsed.positional.length !== 2 || typeof github !== 'string') throw new CliUsageError('Usage: deepsync plan add --github <owner/repository> --tag <tag> --asset <file.tgz> --digest <sha256:digest> --dsh-root <path> --home <isolated-home>')
   const segments = github.split('/')
@@ -154,7 +160,7 @@ function planSource(parsed: ParsedArgs): ArtifactSourceReferenceV1 {
 
 async function planAdd(parsed: ParsedArgs): Promise<CommandOutcome> {
   allowOptions(parsed, ['dsh-root', 'home', 'out', 'state', 'request-id', 'artifact-cache', 'github', 'tag', 'asset', 'digest'])
-  const source = planSource(parsed)
+  const source = await planSource(parsed)
   const resolvedArtifact = await resolvePluginArtifact(source, option(parsed, 'artifact-cache', '.deepsync/artifacts'))
   const artifact = resolvedArtifact.artifact
   const target = await instance(parsed, true)
@@ -196,10 +202,13 @@ async function readPlan(filename: string): Promise<PlanDocument> {
   if (candidate.schemaVersion !== 3 || typeof candidate.dshRoot !== 'string' || typeof candidate.home !== 'string'
     || typeof candidate.instanceNonce !== 'string' || typeof candidate.statePath !== 'string') throw new CliUsageError('Plan document is malformed or unsupported')
   const source = record(candidate.source, 'Plan source')
-  if (source.schemaVersion !== 1 || !['local-package', 'github-release'].includes(typeof source.kind === 'string' ? source.kind : '')) throw new CliUsageError('Plan source is malformed or unsupported')
+  if (source.schemaVersion !== 1 || !['local-package', 'local-artifact', 'github-release'].includes(typeof source.kind === 'string' ? source.kind : '')) throw new CliUsageError('Plan source is malformed or unsupported')
   if (source.kind === 'local-package') {
-    exactKeys(source, ['schemaVersion', 'kind', 'path'], 'Plan local source')
-    if (typeof source.path !== 'string') throw new CliUsageError('Plan local source path is malformed')
+    exactKeys(source, ['schemaVersion', 'kind', 'path'], 'Plan local package source')
+    if (typeof source.path !== 'string') throw new CliUsageError('Plan local package source path is malformed')
+  } else if (source.kind === 'local-artifact') {
+    exactKeys(source, ['schemaVersion', 'kind', 'path', 'digest'], 'Plan local artifact source')
+    if (typeof source.path !== 'string' || typeof source.digest !== 'string') throw new CliUsageError('Plan local artifact source is malformed')
   } else {
     exactKeys(source, ['schemaVersion', 'kind', 'owner', 'repository', 'tag', 'asset', 'digest'], 'Plan GitHub source')
     if (typeof source.owner !== 'string' || typeof source.repository !== 'string' || typeof source.tag !== 'string' || typeof source.asset !== 'string' || typeof source.digest !== 'string') throw new CliUsageError('Plan GitHub source is malformed')
@@ -322,7 +331,7 @@ async function pluginValidation(parsed: ParsedArgs, asDoctor: boolean): Promise<
 }
 
 export function help(): string {
-  return `DeepSync ${VERSION}\n\nCommands:\n  status [--state <path>] [--json]\n  doctor --dsh-root <path> --home <isolated-home> [--json]\n  doctor plugin <path|artifact> [--json]\n  plugin validate <path|artifact> [--json]\n  plan add <source> --dsh-root <path> --home <isolated-home> [--out <file>]\n  plan add --github <owner/repository> --tag <tag> --asset <file.tgz> --digest <sha256:digest> --dsh-root <path> --home <isolated-home> [--out <file>]\n  apply <plan-file> [--state <path>] [--json]\n  rollback <request-id> --dsh-root <path> --home <isolated-home> [--state <path>] [--json]\n  recover --dsh-root <path> --home <isolated-home> [--state <path>] [--json]\n`
+  return `DeepSync ${VERSION}\n\nCommands:\n  status [--state <path>] [--json]\n  doctor --dsh-root <path> --home <isolated-home> [--json]\n  doctor plugin <path|artifact> [--json]\n  plugin validate <path|artifact> [--json]\n  plan add <package|artifact.tgz> --dsh-root <path> --home <isolated-home> [--out <file>]\n  plan add --github <owner/repository> --tag <tag> --asset <file.tgz> --digest <sha256:digest> --dsh-root <path> --home <isolated-home> [--out <file>]\n  apply <plan-file> [--state <path>] [--json]\n  rollback <request-id> --dsh-root <path> --home <isolated-home> [--state <path>] [--json]\n  recover --dsh-root <path> --home <isolated-home> [--state <path>] [--json]\n`
 }
 
 export async function main(args: readonly string[]): Promise<number> {

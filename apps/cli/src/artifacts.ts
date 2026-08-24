@@ -1,8 +1,8 @@
 import { resolve } from 'node:path'
-import type { ArtifactSourceReferenceV1, Evidence, GitHubReleaseSourceReferenceV1, LocalPackageSourceReferenceV1 } from '@deepsync/contracts'
+import type { ArtifactSourceReferenceV1, Evidence, GitHubReleaseSourceReferenceV1, LocalArtifactSourceReferenceV1, LocalPackageSourceReferenceV1 } from '@deepsync/contracts'
 import { DeepSyncError } from '@deepsync/core'
 import { GitHubReleaseSource } from '@deepsync/source-github'
-import { inspectPackedDshArtifact, packLocalDshArtifact, type PackedDshArtifact } from '@deepsync/target-dsh'
+import { cachePackedDshArtifact, inspectPackedDshArtifact, packLocalDshArtifact, type PackedDshArtifact } from '@deepsync/target-dsh'
 
 export interface ResolvedPluginArtifact {
   readonly source: ArtifactSourceReferenceV1
@@ -20,6 +20,12 @@ export async function resolvePluginArtifact(
     const source: LocalPackageSourceReferenceV1 = { schemaVersion: 1, kind: 'local-package', path: resolve(reference.path) }
     const artifact = await packLocalDshArtifact(source.path, cache)
     return { source, artifact, evidence: [{ checkId: 'source.local.pack', status: 'pass', summary: `Packed ${artifact.packageName}@${artifact.version}`, observedAt: new Date().toISOString(), data: { digest: artifact.artifactDigest } }] }
+  }
+  if (reference.kind === 'local-artifact') {
+    const source: LocalArtifactSourceReferenceV1 = { schemaVersion: 1, kind: 'local-artifact', path: resolve(reference.path), digest: reference.digest }
+    const artifact = await cachePackedDshArtifact(source.path, cache)
+    if (artifact.artifactDigest !== source.digest) throw new DeepSyncError('ARTIFACT_INVALID', 'Local artifact reference digest does not match its bytes')
+    return { source, artifact, evidence: [{ checkId: 'source.local.artifact', status: 'pass', summary: `Verified ${artifact.packageName}@${artifact.version}`, observedAt: new Date().toISOString(), data: { digest: artifact.artifactDigest } }] }
   }
   const source: GitHubReleaseSourceReferenceV1 = {
     schemaVersion: 1,
