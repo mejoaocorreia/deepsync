@@ -5,9 +5,25 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
-  "files": ["dist", "README.md"],
-  "scripts": { "build": "tsdown src/index.ts --format esm --dts --clean" },
-  "dependencies": { "@deepsync/contracts": "workspace:^", "@deepsync/core": "workspace:^" },
-  "publishConfig": { "access": "public" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean"
+  },
+  "dependencies": {
+    "@deepsync/contracts": "workspace:^",
+    "@deepsync/core": "workspace:^",
+    "tar": "^7.5.22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

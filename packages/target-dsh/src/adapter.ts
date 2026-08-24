@@ -1,5 +1,5 @@
-import { mkdir, readFile, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type {
   ChangePlan,
@@ -13,33 +13,54 @@ import type {
   TargetObservation,
   TargetSnapshot,
 } from '@deepsync/contracts'
-import { assertIsolated, detectDsh, profileDirectory, restoreProfile, snapshotProfile, type IsolatedDshInstance } from './isolated.ts'
+import { DeepSyncError, evaluateCapabilities, artifactDigest } from '@deepsync/core'
+import { inspectPackedDshArtifact } from './artifact.ts'
+import { DSH_ADAPTER_ID } from './constants.ts'
+import { assertIsolated, detectDsh, isolatedEnvironment, profileDirectory, profileTreeDigest, restoreProfile, snapshotProfile, targetInstanceId, type IsolatedDshInstance } from './isolated.ts'
 import { activateAndCheck, type ProbeMode } from './health.ts'
-import { readDshBundleManifest } from './manifest.ts'
-import { runCommand, scrubEnvironment } from './process.ts'
+import { runCommand } from './process.ts'
 
 interface DshIntent {
-  readonly adapterId: 'dsh'
+  readonly adapterId: typeof DSH_ADAPTER_ID
   readonly action: 'add'
-  readonly sourcePath: string
+  readonly artifactPath: string
   readonly mode: ProbeMode
 }
 
-function intent(value: JsonValue): DshIntent {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('DSH intent must be an object')
-  const candidate = value as unknown as Partial<DshIntent>
-  if (candidate.adapterId !== 'dsh' || candidate.action !== 'add' || typeof candidate.sourcePath !== 'string'
-    || !['healthy', 'activation-failure', 'health-failure'].includes(candidate.mode ?? '')) throw new Error('DSH add intent is invalid')
-  return candidate as DshIntent
+interface DshPlanMetadata {
+  readonly artifactPath: string
+  readonly packageName: string
+  readonly version: string
+  readonly mode: ProbeMode
+  readonly instanceNonce: string
 }
 
-function metadata(plan: ChangePlan): { sourcePath: string; packageName: string; mode: ProbeMode } {
-  return plan.metadata as unknown as { sourcePath: string; packageName: string; mode: ProbeMode }
+function object(value: JsonValue, subject: string): Readonly<Record<string, JsonValue>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new DeepSyncError('PLAN_INVALID', `${subject} must be an object`)
+  return value as Readonly<Record<string, JsonValue>>
+}
+
+function intent(value: JsonValue): DshIntent {
+  const candidate = object(value, 'DSH intent')
+  if (candidate.adapterId !== DSH_ADAPTER_ID || candidate.action !== 'add' || typeof candidate.artifactPath !== 'string'
+    || !['healthy', 'activation-failure', 'health-failure'].includes(typeof candidate.mode === 'string' ? candidate.mode : '')) {
+    throw new DeepSyncError('PLAN_INVALID', 'DSH add intent is invalid')
+  }
+  return candidate as unknown as DshIntent
+}
+
+function metadata(plan: ChangePlan): DshPlanMetadata {
+  const candidate = object(plan.metadata, 'DSH plan metadata')
+  if (typeof candidate.artifactPath !== 'string' || typeof candidate.packageName !== 'string' || typeof candidate.version !== 'string'
+    || typeof candidate.instanceNonce !== 'string' || !['healthy', 'activation-failure', 'health-failure'].includes(typeof candidate.mode === 'string' ? candidate.mode : '')) {
+    throw new DeepSyncError('PLAN_INVALID', 'DSH plan metadata is invalid')
+  }
+  return candidate as unknown as DshPlanMetadata
 }
 
 async function dump(instance: IsolatedDshInstance): Promise<string> {
-  const result = await runCommand(instance.command, ['--profile', instance.profile, '--dump-config'], scrubEnvironment({ DSH_HOME: instance.home }))
-  if (result.exitCode !== 0) throw new Error(`DSH config validation failed: ${result.stderr || result.stdout}`)
+  const result = await runCommand(instance.command, ['--profile', instance.profile, '--dump-config'], isolatedEnvironment(instance))
+  if (result.exitCode !== 0) throw new DeepSyncError('TARGET_UNSUPPORTED', `DSH config validation failed: ${result.stderr || result.stdout}`)
   return result.stdout
 }
 
@@ -48,90 +69,117 @@ function hash(text: string): string {
 }
 
 export class DshTargetAdapter implements TargetAdapter {
-  readonly id = 'dsh'
+  readonly id = DSH_ADAPTER_ID
 
   constructor(readonly instance: IsolatedDshInstance) {}
 
   async plan(request: ChangeRequest): Promise<ChangePlan> {
     await assertIsolated(this.instance)
+    if (request.targetInstanceId !== targetInstanceId(this.instance)) throw new DeepSyncError('TARGET_MISMATCH', 'Change request does not identify this isolated DSH instance')
     const requested = intent(request.intent)
-    const sourcePath = resolve(requested.sourcePath)
-    const manifest = await readDshBundleManifest(sourcePath)
+    const artifact = await inspectPackedDshArtifact(requested.artifactPath)
     return {
       schemaVersion: 1,
       adapterId: this.id,
       targetInstanceId: request.targetInstanceId,
-      artifactDigest: manifest.artifactDigest,
-      operations: [{ action: 'pnpm-add', packageName: manifest.packageName, sourcePath }],
-      metadata: { sourcePath, packageName: manifest.packageName, mode: requested.mode },
+      artifactDigest: artifact.artifactDigest,
+      operations: [{ action: 'pnpm-add', packageName: artifact.packageName, artifactPath: artifact.artifactPath, saveExact: true }],
+      metadata: { artifactPath: artifact.artifactPath, packageName: artifact.packageName, version: artifact.version, mode: requested.mode, instanceNonce: this.instance.instanceNonce },
     }
   }
 
   async validate(plan: ChangePlan): Promise<readonly Evidence[]> {
     await assertIsolated(this.instance)
+    if (plan.adapterId !== this.id || plan.targetInstanceId !== targetInstanceId(this.instance)) throw new DeepSyncError('TARGET_MISMATCH', 'DSH plan does not identify this adapter instance')
     const observedAt = new Date().toISOString()
-    const detected = await detectDsh(this.instance)
-    if (detected.evidence.some(item => item.status === 'fail')) throw new Error('DSH compatibility checks failed')
     const details = metadata(plan)
-    const manifest = await readDshBundleManifest(details.sourcePath)
-    if (manifest.packageName !== details.packageName || manifest.artifactDigest !== plan.artifactDigest) throw new Error('Artifact changed after planning')
+    if (details.instanceNonce !== this.instance.instanceNonce) throw new DeepSyncError('TARGET_MISMATCH', 'DSH plan belongs to a different isolation nonce')
+    const detected = await detectDsh(this.instance)
+    if (detected.evidence.some(item => item.status === 'fail')) throw new DeepSyncError('TARGET_UNSUPPORTED', 'DSH compatibility checks failed')
+    const artifact = await inspectPackedDshArtifact(details.artifactPath)
+    if (artifact.packageName !== details.packageName || artifact.version !== details.version || artifact.artifactDigest !== plan.artifactDigest) {
+      throw new DeepSyncError('ARTIFACT_INVALID', 'Artifact identity changed after planning')
+    }
+    const compatibility = evaluateCapabilities(artifact.deepSync.capabilities, detected.target.capabilities, observedAt)
+    if (!compatibility.compatible) throw new DeepSyncError('TARGET_UNSUPPORTED', 'Artifact required capabilities are not available on this DSH instance')
     await dump(this.instance)
-    return [...detected.evidence, { checkId: 'dsh.bundle-manifest', status: 'pass', summary: `Validated ${manifest.packageName}`, observedAt }]
+    return [
+      ...detected.evidence,
+      ...compatibility.evidence,
+      { checkId: 'dsh.bundle-artifact', status: 'pass', summary: `Verified packed ${artifact.packageName}@${artifact.version}`, observedAt, data: { digest: artifact.artifactDigest, size: artifact.size, entries: artifact.entries } },
+    ]
   }
 
   async snapshot(_plan: ChangePlan): Promise<TargetSnapshot> {
+    await assertIsolated(this.instance)
     const baselineDump = await dump(this.instance)
     const snapshotPath = join(this.instance.home, '.deepsync-snapshots', crypto.randomUUID(), 'profile')
+    const profileDigest = await profileTreeDigest(profileDirectory(this.instance))
     await snapshotProfile(this.instance, snapshotPath)
-    return { ref: { snapshotPath, dumpHash: hash(baselineDump) } }
+    return { ref: { snapshotPath, dumpHash: hash(baselineDump), profileDigest } }
   }
 
-  async apply(plan: ChangePlan, _executionId: ExecutionId): Promise<void> {
+  async apply(plan: ChangePlan, executionId: ExecutionId): Promise<void> {
     await assertIsolated(this.instance)
     const details = metadata(plan)
+    const artifact = await inspectPackedDshArtifact(details.artifactPath)
+    if (artifact.artifactDigest !== plan.artifactDigest) throw new DeepSyncError('ARTIFACT_INVALID', 'Artifact bytes changed before apply')
+    const artifactDirectory = join(profileDirectory(this.instance), '.deepsync-artifacts')
+    await mkdir(artifactDirectory, { recursive: true })
+    const stagedArtifact = join(artifactDirectory, `${plan.artifactDigest.slice('sha256:'.length)}.tgz`)
+    const bytes = await readFile(artifact.artifactPath)
+    await writeFile(stagedArtifact, bytes, { encoding: null, flag: 'wx', mode: 0o400 }).catch(async error => {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      if (artifactDigest(await readFile(stagedArtifact)) !== plan.artifactDigest) throw new DeepSyncError('ARTIFACT_INVALID', `Staged artifact collision for ${executionId}`)
+    })
     const result = await runCommand(
       this.instance.command,
-      ['plugin', '--profile', this.instance.profile, 'add', details.sourcePath, '--save-exact'],
-      scrubEnvironment({ DSH_HOME: this.instance.home }),
+      ['plugin', '--profile', this.instance.profile, 'add', stagedArtifact, '--save-exact'],
+      isolatedEnvironment(this.instance),
       120_000,
     )
-    if (result.exitCode !== 0) throw new Error(`DSH package apply failed: ${result.stderr || result.stdout}`)
+    if (result.exitCode !== 0) throw new DeepSyncError('ARTIFACT_INVALID', `DSH package apply failed: ${result.stderr || result.stdout}`)
   }
 
   async observe(plan: ChangePlan): Promise<TargetObservation> {
     const details = metadata(plan)
     const config = await dump(this.instance)
     const packageJson = JSON.parse(await readFile(join(profileDirectory(this.instance), 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; dsh?: { profile?: { bundles?: string[] } } }
-    const installed = packageJson.dependencies?.[details.packageName] !== undefined
+    const installedSpecifier = packageJson.dependencies?.[details.packageName]
+    const installed = installedSpecifier !== undefined
     const activated = packageJson.dsh?.profile?.bundles?.includes(details.packageName) === true
-    return { value: { installed, desiredActivation: activated, configHash: hash(config), packageName: details.packageName, mode: details.mode } }
+    const pinnedArtifact = installedSpecifier?.includes(plan.artifactDigest.slice('sha256:'.length)) === true
+    return { value: { installed, desiredActivation: activated, pinnedArtifact, installedSpecifier: installedSpecifier ?? null, configHash: hash(config), packageName: details.packageName, mode: details.mode } }
   }
 
   async health(plan: ChangePlan, observation: TargetObservation): Promise<TargetHealth> {
-    const value = observation.value as Readonly<Record<string, JsonValue>>
-    if (value.installed !== true || value.desiredActivation !== true) return { ok: false, reason: 'DSH package is not installed and selected', evidence: [] }
+    const value = object(observation.value, 'DSH observation')
+    if (value.installed !== true || value.desiredActivation !== true || value.pinnedArtifact !== true) return { ok: false, reason: 'DSH package is not installed, selected, and pinned to the planned artifact', evidence: [] }
     return await activateAndCheck(this.instance, metadata(plan).mode)
   }
 
   async rollback(snapshot: TargetSnapshot, _executionId: ExecutionId): Promise<void> {
-    const ref = snapshot.ref as Readonly<Record<string, JsonValue>>
-    if (typeof ref.snapshotPath !== 'string') throw new Error('Snapshot has no profile path')
+    const ref = object(snapshot.ref, 'DSH snapshot')
+    if (typeof ref.snapshotPath !== 'string') throw new DeepSyncError('STATE_CORRUPT', 'Snapshot has no profile path')
     await restoreProfile(this.instance, ref.snapshotPath)
   }
 
   async verifyRollback(snapshot: TargetSnapshot): Promise<RollbackVerification> {
-    const ref = snapshot.ref as Readonly<Record<string, JsonValue>>
-    if (typeof ref.dumpHash !== 'string') throw new Error('Snapshot has no dump hash')
-    const restoredHash = hash(await dump(this.instance))
-    const restored = restoredHash === ref.dumpHash
+    const ref = object(snapshot.ref, 'DSH snapshot')
+    if (typeof ref.dumpHash !== 'string' || typeof ref.profileDigest !== 'string') throw new DeepSyncError('STATE_CORRUPT', 'Snapshot has no verification digests')
+    const restoredDumpHash = hash(await dump(this.instance))
+    const restoredProfileDigest = await profileTreeDigest(profileDirectory(this.instance))
+    const restored = restoredDumpHash === ref.dumpHash && restoredProfileDigest === ref.profileDigest
     const observedAt = new Date().toISOString()
-    const evidence: Evidence[] = [{ checkId: 'dsh.rollback-config', status: restored ? 'pass' : 'fail', summary: restored ? 'Restored config matches baseline' : 'Restored config differs from baseline', observedAt, data: { expected: ref.dumpHash, observed: restoredHash } }]
+    const evidence: Evidence[] = [
+      { checkId: 'dsh.rollback-config', status: restoredDumpHash === ref.dumpHash ? 'pass' : 'fail', summary: restoredDumpHash === ref.dumpHash ? 'Restored config matches baseline' : 'Restored config differs from baseline', observedAt, data: { expected: ref.dumpHash, observed: restoredDumpHash } },
+      { checkId: 'dsh.rollback-profile', status: restoredProfileDigest === ref.profileDigest ? 'pass' : 'fail', summary: restoredProfileDigest === ref.profileDigest ? 'Restored profile tree matches baseline' : 'Restored profile tree differs from baseline', observedAt, data: { expected: ref.profileDigest, observed: restoredProfileDigest } },
+    ]
     if (restored) return { restored: true, evidence }
-    return { restored: false, reason: 'Restored DSH config hash differs', evidence }
+    return { restored: false, reason: 'Restored DSH profile differs from the durable baseline', evidence }
   }
 
   async disposeSnapshots(): Promise<void> {
     await rm(join(this.instance.home, '.deepsync-snapshots'), { recursive: true, force: true })
-    await mkdir(join(this.instance.home, '.deepsync-snapshots'), { recursive: true })
   }
 }

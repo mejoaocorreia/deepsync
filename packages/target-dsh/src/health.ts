@@ -2,8 +2,8 @@ import { spawn } from 'node:child_process'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Evidence, TargetHealth } from '@deepsync/contracts'
-import type { IsolatedDshInstance } from './isolated.ts'
-import { scrubEnvironment } from './process.ts'
+import { isolatedEnvironment, type IsolatedDshInstance } from './isolated.ts'
+import { terminateProcessTree } from './process.ts'
 
 export type ProbeMode = 'healthy' | 'activation-failure' | 'health-failure'
 
@@ -30,8 +30,9 @@ export async function activateAndCheck(instance: IsolatedDshInstance, mode: Prob
   await rm(filename, { force: true })
   const child = spawn(instance.command.command, [...instance.command.prefixArgs, '--profile', instance.profile], {
     cwd: instance.command.cwd,
-    env: scrubEnvironment({ DSH_HOME: instance.home, DEEPSYNC_PROBE_MODE: mode }),
+    env: { ...isolatedEnvironment(instance), DEEPSYNC_PROBE_MODE: mode },
     windowsHide: true,
+    detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
@@ -58,7 +59,7 @@ export async function activateAndCheck(instance: IsolatedDshInstance, mode: Prob
       evidence: [{ checkId: 'dsh.loader-activation', status: 'fail', summary: detail, observedAt }],
     }
   } finally {
-    child.kill()
+    await terminateProcessTree(child)
     await Promise.race([closed.then(() => undefined), new Promise<void>(resolve => setTimeout(resolve, 5_000))])
   }
 }
