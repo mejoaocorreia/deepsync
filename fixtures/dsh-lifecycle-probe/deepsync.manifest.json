@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "dsh-lifecycle-probe",
   "packageName": "@deepsync/fixture-dsh-lifecycle-probe",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "capabilities": [
     {
       "id": "dsh.profile.bundle",

@@ -1,6 +1,6 @@
 {
   "name": "@deepsync/source-github",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Public GitHub release artifact source for DeepSync",
   "private": true,
   "type": "module",

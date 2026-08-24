@@ -1,6 +1,6 @@
 {
   "name": "@deepsync/doctor",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Deterministic evidence-based diagnostics for DeepSync",
   "private": true,
   "type": "module",
